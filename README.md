@@ -13,7 +13,7 @@
 | Agent | 沙箱内文件/终端 + `rag_Query` + `sqlite_Query`，模型自选工具 |
 | API | FastAPI：`/v1/rag/*` `/v1/sqlite/*` `/v1/hybrid/ask` `/v1/agent/run` + 简易 UI |
 | 错误 | `app.errors.AppError` 统一 `code/message/details`，API 映射 HTTP 状态 |
-| 会话 | `session_id` 隔离多轮记忆，支持并发多用户会话文件 |
+| 会话 | `session_id` 按调用者隔离多轮记忆，上传工作区与记忆互不可见，支持并发多用户会话文件 |
 
 ## 目录
 
@@ -23,6 +23,7 @@ data/chroma_db/    向量索引
 data/bm25_index.json
 data/sqlite/       query.db / logger.db
 data/sessions/     各 session 对话记忆
+data/chat_uploads/ 对话上传/粘贴拆分的附件工作区
 data/locks/        跨进程文件锁
 data/logs/app.log  滚动日志
 data/backups/      备份产物
@@ -63,6 +64,34 @@ uv sync --group dev
 ```
 
 生产环境必须设置 `KB_ENV=production`、`DEEP_SEEK_KEY` 和至少一把满足长度要求的 `KB_API_KEY_*`；生产模式始终强制 API Key 鉴权。完整可选项见 [`.env.example`](.env.example)。
+
+### 配置参考
+
+| 变量 | 默认 | 说明 |
+|------|------|------|
+| `DEEP_SEEK_KEY` | — | 模型服务密钥（LLM 生成必需） |
+| `KB_ENV` | `development` | `development` / `production`；production 强制 API Key，关闭开发兜底 |
+| `KB_REQUIRE_API_KEY` | 随 env | `1` 强制鉴权；`0` 仅本地开发兜底 |
+| `KB_HOST` / `KB_PORT` | `127.0.0.1` / `8000` | 监听地址与端口（容器/裸机对外时 host 用 `0.0.0.0`） |
+| `KB_WORKERS` | `1` | uvicorn worker 数（内存敏感，建议 1；多 worker 需同盘可写） |
+| `KB_LOG_LEVEL` | `INFO` | 日志级别 |
+| `KB_CORS_ORIGINS` | 空 | 浏览器跨域白名单（逗号分隔）；留空不启用 CORS |
+| `KB_TRUST_PROXY` | `0` | 仅当位于已清洗 `X-Forwarded-For` 的可信反代之后开启 |
+| `KB_RATE_LIMIT_ENABLED` | production 开 | 应用层限流总开关 |
+| `KB_RATE_LIMIT_RPM` | `60` | 每分钟每键请求数 |
+| `KB_RATE_LIMIT_BURST` | `30` | 每 60s 窗口内额外放行数 |
+| `KB_API_KEY_ADMIN` 等 | — | 角色密钥（`ADMIN`/`USER`/`READONLY` 等，见下）；每把可配 `_OPERATOR`、`_EXPIRES_AT` |
+| `OIDC_*` | 关 | 企业 OIDC 登录（启用后 Bearer 与 API Key 并存） |
+| `KB_GOVERNANCE_DB` | `data/governance.db` | 动态 key / 变更 / 审计链数据库 |
+| `KB_TEMP_FILE_TTL_MINUTES` | `60` | 临时文件保留时长 |
+| `KB_TEMP_FILE_DIR` | 默认目录 | 临时文件落盘目录 |
+| `KB_AUDIT_RETENTION_DAYS` | `365` | 审计与变更记录保留天数 |
+| `KB_ACL_UNTAGGED_POLICY` | `public` | 未打标**文档**默认策略：`public` / `deny` |
+| `KB_SQL_ACL_UNTAGGED_POLICY` | `public` | 未打标**表**默认策略：`public` / `deny` |
+| `KB_SQL_TABLE_ACL_JSON` | 空 | 表级策略 JSON，见「数据访问控制」 |
+| `KB_ACL_ADMIN_BYPASS` | `1` | admin 是否绕过 ACL（`0` 关闭） |
+
+角色与默认权限：`admin`=全部；`change_requester`（提交变更）、`approver`（审批）、`executor`（执行/回滚）、`auditor`（审计）、`user`（读写知识）、`readonly`（只读）。
 
 ## 自动化测试
 
@@ -186,6 +215,94 @@ Hybrid 示例：
 {"ok": false, "error": {"code": "rag_index_not_ready", "message": "..."}}
 ```
 
+### curl 调用示例
+
+```bash
+# 就绪探针（无需 key）
+curl -s http://127.0.0.1:8000/v1/ready
+
+# 知识问答（带 key）
+curl -s -X POST http://127.0.0.1:8000/v1/rag/ask \
+  -H "X-API-Key: $KB_API_KEY_USER" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "什么是RAG？", "session_id": "u1"}'
+
+# 只读 SQL（表级 ACL 按 key 身份生效）
+curl -s -X POST http://127.0.0.1:8000/v1/sqlite/query \
+  -H "X-API-Key: $KB_API_KEY_USER" \
+  -H "Content-Type: application/json" \
+  -d '{"sql": "SELECT COUNT(*) AS n FROM employees"}'
+
+# 统一对话（自动分流）
+curl -s -X POST http://127.0.0.1:8000/v1/chat/json \
+  -H "X-API-Key: $KB_API_KEY_USER" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "研发部有多少人？", "session_id": "c1"}'
+
+# 管理操作（仅 admin）
+curl -s -X POST http://127.0.0.1:8000/v1/sqlite/ingest \
+  -H "X-API-Key: $KB_API_KEY_ADMIN"
+```
+
+### 错误码
+
+| HTTP | code | 含义 |
+|------|------|------|
+| 401 | `auth_error` | 缺 key / key 无效 / 已过期 |
+| 403 | `permission_denied` | 角色或权限不足（含 SQL 表被 ACL 拒绝） |
+| 429 | `rate_limited` | 触发限流（带 `Retry-After`） |
+| 422 | `validation_error` | 参数校验失败 |
+| 503 | `rag_index_not_ready` / `db_not_ready` | 索引或表库未就绪 |
+| 500 | `rag_index_build_failed` / `ingest_error` | 重建 / 摄取失败 |
+| 500 | `llm_error` | 大模型调用失败（key 缺失 / 上游错误） |
+| 400 | `sql_validation_error` / `sql_query_error` | SQL 校验或执行失败 |
+| 500 | `agent_error` / `hybrid_error` / `rag_error` | 对应链路内部错误 |
+| 500 | `audit_integrity_error` / `config_error` / `internal_error` | 审计链被篡改 / 配置错误 / 未知异常 |
+
+## 数据访问控制（ACL）
+
+ACL 在**重排、摘要、Prompt 拼接和模型调用之前**生效，受限内容不会进入回答；SQL 在**执行前**校验。
+
+### 文档级（RAG）
+
+文档元数据打标字段（由 `data/raw/` 下的 `_meta.json` 或文件名伴生元数据提供）：
+
+| 字段 | 说明 |
+|------|------|
+| `visibility` | `public`（所有人可读）/ `private`（默认，仅 owner/允许者）/ `restricted` |
+| `owner_key_id` / `owner_principal_id` / `owner_subject` / `owner_operator` | 所有者身份 |
+| `allowed_key_ids` / `allowed_principal_ids` / `allowed_subjects` | 允许访问者白名单 |
+| `allowed_groups` / `allowed_roles` | 按组 / 按角色开放 |
+
+未打标文档遵循 `KB_ACL_UNTAGGED_POLICY`（默认 `public`，可设 `deny` 收紧）。
+
+### 表级（SQLite）
+
+用 `KB_SQL_TABLE_ACL_JSON` 配置，例如：
+
+```json
+{"sales": {"visibility": "public"},
+ "hr":   {"visibility": "restricted", "allowed_roles": "admin"},
+ "finance": {"allowed_key_ids": "kb-xxx"}}
+```
+
+- 未出现在 JSON 中的表遵循 `KB_SQL_ACL_UNTAGGED_POLICY`（默认 `public`）
+- `sqlite_master` 等系统表仅 admin 可查
+- 表名不区分大小写；SQL 引用的**所有**表都通过才放行
+
+### 生效位置与旁路
+
+- RAG：两路召回、RRF 融合、重排前 `filter_chunks_by_acl`
+- SQL：`TableService.query` 与 Agent 的 `sqlite_Query` 工具在执行前解析表名并校验
+- Hybrid / Chat / Agent 全链路把调用者 `principal` 一路透传，**不存在绕过 ACL 的暗门**
+- admin 默认绕过全部 ACL（`KB_ACL_ADMIN_BYPASS=0` 可关闭）
+
+## 会话隔离与限流
+
+- **会话按调用者隔离**：API 层所有 `session_id` 经 `scoped_session_id(principal, sid)` 转为 `"{key_id}:{sid}"` 后再落盘；不同 key 传入相同 `session_id` 也不会读到对方的 RAG 记忆或上传工作区（`data/chat_uploads/<scoped>/`）
+- **应用层限流**：进程内滑动窗口，键为 `X-API-Key` 摘要或客户端 IP；超限返回 `429` + `Retry-After` + `X-RateLimit-Remaining`；`/v1/health`、`/v1/ready` 豁免
+- **nginx 层限流**：`deploy/*.conf` 内置按 IP `120r/m` 限速 + 单 IP 20 连接上限，多 worker 时兜底
+
 ## 安全（当前级别）
 
 - Agent 文件/终端限制在工作目录；危险命令黑名单；命令超时
@@ -249,6 +366,55 @@ curl -s http://127.0.0.1:8000/v1/ready
 - 日志：`data/logs/app.log`；指标：`/v1/metrics`（需 API Key）
 - 勿把 `data/`、`.env`、`deploy/certs/` 进仓库
 - 应用层限流为进程内计数：多 worker 时按进程独立计算，建议同时保留 nginx 层限流兜底（已在 `deploy/*.conf` 内置）
+
+## 运维与监控
+
+### 日志
+
+- 应用日志：`data/logs/app.log`（滚动，保留策略见 `logging_setup.py`）
+- 排查入口：`tail -f data/logs/app.log`；错误统一带 `stage` 与 `error.code`，可 grep 定位
+- 审计日志：`data/sqlite/logger.db`（SQL 执行审计、变更留痕）
+
+### 监控
+
+- `GET /v1/health`：轻量存活探针（k8s/systemd 用，不加载模型）
+- `GET /v1/ready`：就绪探针；生产缺配置返回 `503` 且 `prod_blockers` 列出原因
+- `GET /v1/metrics`：进程指标（需有效 API Key）
+
+### 发布更新流程
+
+```bash
+cd /path/to/project
+git pull origin main          # 拉取新版本
+uv sync --frozen              # 同步依赖（有锁文件）
+./scripts/backup_data.sh      # 更新前先备份数据
+uv run mykb check-deploy      # 自检通过再重启
+sudo systemctl restart private-kb   # 或 docker compose up -d --build
+```
+
+### 证书续期
+
+- Let's Encrypt：`sudo certbot renew`（建议 cron 每周）；续期后无需重启 nginx
+- 自签证书：到期前重跑 `uv run python scripts/gen_self_signed_cert.py`
+
+### 数据备份
+
+- `./scripts/backup_data.sh` → `data/backups/kb_data_*.tar.gz`（含 raw 原件、索引、表库、会话、治理库）
+- 建议 cron 每日备份 + 异地留存一份
+
+## 常见问题排查
+
+| 现象 | 原因与处理 |
+|------|-----------|
+| `/v1/ready` 返回 503 | 看 `prod_blockers`：缺 API Key / 缺 `DEEP_SEEK_KEY` / 锁目录不可写 → 补配置后重启 |
+| 请求返回 401 | `X-API-Key` 缺失 / 错误 / 过期 → 检查 key 与 `_EXPIRES_AT` |
+| 返回 403 `permission_denied` | 角色权限不足，或 SQL 引用了无权的表 → 换高角色 key，或调整 `KB_SQL_TABLE_ACL_JSON` |
+| 返回 429 | 触发限流 → 降低调用频率，或调大 `KB_RATE_LIMIT_RPM/BURST` |
+| `rag_index_not_ready` | 索引未构建 → `uv run mykb rag-rebuild`；确认 `data/raw/` 有文档 |
+| `db_not_ready` | 表库缺失 → `uv run mykb sqlite-ingest` |
+| `llm_error` | `DEEP_SEEK_KEY` 缺失或上游超时 → 检查密钥与网络，看日志定位 stage |
+| 服务起不来（`ImportError`） | 依赖未装或代码不完整 → `uv sync --frozen`，确认是从仓库完整拉取 |
+| HTTPS 打不开 | 证书缺失 → 先 `uv run python scripts/gen_self_signed_cert.py` 或放置正式证书，再 `nginx -t && systemctl reload nginx` |
 
 ## 阶段说明
 
