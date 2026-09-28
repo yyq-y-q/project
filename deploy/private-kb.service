@@ -1,0 +1,23 @@
+[Unit]
+Description=Private Knowledge Base API
+After=network.target
+
+[Service]
+Type=simple
+User=kb
+Group=kb
+WorkingDirectory=/opt/private-kb
+Environment=KB_ENV=production
+EnvironmentFile=-/opt/private-kb/.env
+# 建议: uv sync --frozen 后用 venv 里的 mykb
+ExecStart=/opt/private-kb/.venv/bin/mykb serve
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65535
+
+# 硬化（可按需放宽）
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

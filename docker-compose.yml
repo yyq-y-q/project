@@ -1,0 +1,54 @@
+# 本地/单机部署：API + 可选 nginx HTTPS
+# 用法：
+#   uv run python scripts/setup_env_keys.py
+#   uv run mykb check-deploy
+#   uv run mykb rag-rebuild && uv run mykb sqlite-ingest
+#   docker compose up -d --build
+#   带 HTTPS: docker compose --profile with-proxy up -d --build
+
+services:
+  kb:
+    build: .
+    image: private-kb:0.3
+    container_name: private-kb
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      KB_ENV: ${KB_ENV:-production}
+      KB_HOST: 0.0.0.0
+      KB_PORT: 8000
+      KB_WORKERS: ${KB_WORKERS:-1}
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env:ro
+    ports:
+      - "${KB_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/ready', timeout=3)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 120s
+
+  proxy:
+    profiles: ["with-proxy"]
+    image: nginx:1.27-alpine
+    container_name: private-kb-proxy
+    restart: unless-stopped
+    depends_on:
+      kb:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+      - "8443:443"
+    volumes:
+      - ./deploy/nginx-https.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/certs/fullchain.pem:/etc/nginx/certs/fullchain.pem:ro
+      - ./deploy/certs/privkey.pem:/etc/nginx/certs/privkey.pem:ro

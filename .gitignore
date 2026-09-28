@@ -1,0 +1,53 @@
+# Python
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.venv/
+
+# 密钥
+.env
+**/.env
+
+# TLS 私钥与证书（绝不入仓库）
+deploy/certs/
+**/certs/*.pem
+**/certs/*.key
+
+# 运行时产物
+data/
+
+# 历史误落源码旁
+src/rag/chroma_db/
+src/rag/bm25_index.json
+src/rag/history.json
+
+# 日志与本地
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# IDE / 编辑器
+.idea/
+.vscode/
+*.swp
+
+# 前端构建（若以后扩展）
+node_modules/
+dist-ui/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 本地说明与临时笔记（三天后再整理可改）
+/notes/
+/tmp_local/
+
+# 本地 AI 工具个人配置
+.claude/
