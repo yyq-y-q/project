@@ -91,7 +91,26 @@ uv sync --group dev
 | `KB_SQL_TABLE_ACL_JSON` | 空 | 表级策略 JSON，见「数据访问控制」 |
 | `KB_ACL_ADMIN_BYPASS` | `1` | admin 是否绕过 ACL（`0` 关闭） |
 
-角色与默认权限：`admin`=全部；`change_requester`（提交变更）、`approver`（审批）、`executor`（执行/回滚）、`auditor`（审计）、`user`（读写知识）、`readonly`（只读）。
+### 角色分权
+
+角色由 API Key 决定（静态 key 或动态 key 绑定），权限集定义在 `app/auth.py::DEFAULT_PERMISSIONS`，端点校验见 `app/api.py`：
+
+| 角色 | 权限集 | 可用端点 | 定位 |
+|------|--------|----------|------|
+| `admin` | `*`（全部） | 全部端点，含 `rag/rebuild`、`sqlite/ingest`、`admin/keys`、`temp-files/cleanup`、Agent、force_mode=agent | 平台管理员 |
+| `change_requester` | `knowledge.read`、`change.submit`、`temp_file.upload/search` | 知识问答（rag/sqlite/hybrid/chat 非 agent）+ 提交变更 | 变更发起人 |
+| `approver` | `knowledge.read`、`change.approve`、`audit.read`、`temp_file.upload/search` | 知识问答 + 审批变更 + 审计 | 审批人 |
+| `executor` | `knowledge.read`、`change.execute`、`change.rollback`、`audit.read`、`temp_file.upload/search` | 知识问答 + 执行/回滚变更 + 审计 | 变更执行人 |
+| `auditor` | `knowledge.read`、`audit.read`、`temp_file.upload/search` | 知识问答 + 审计只读（`/v1/audit`、`/v1/audit/verify`） | 合规审计 |
+| `user` | `knowledge.read`、`temp_file.upload/search` | 知识问答 + Agent（`/v1/agent/run`、chat force_mode=agent） | 普通用户 |
+| `readonly` | `knowledge.read`、`temp_file.upload/search` | 知识问答（**不能跑 Agent**：chat 遇 agent 请求返回 403 并提示改用知识库问法） | 只读访客 |
+
+要点：
+
+- `*` 权限仅 `admin` 拥有，控制 `admin/keys`（动态 key 管理）与 `temp-files/cleanup`
+- `user` 与 `readonly` 权限集相同，**唯一区别是 Agent 执行权**（readonly 被 `allow_agent` 挡掉）
+- 变更流程权限（`change.submit/approve/execute/rollback`）在 `change_service` 内校验，与「审批→执行→回滚」工作流一一对应
+- 所有 API Key 均需 `X-API-Key` 头；生产环境未配置任何 key 时服务拒绝启动（`check-deploy` 会报 `auth_keys_missing`）
 
 ## 自动化测试
 
