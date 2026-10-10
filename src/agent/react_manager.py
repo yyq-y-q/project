@@ -103,7 +103,7 @@ class ReActManager:
             action = action_match.group(1)
 
             try:
-                act_name, args = self.action_parser.parse_action(action)
+                act_name, args, kwargs = self.action_parser.parse_action(action)
             except (ValueError, SyntaxError) as e:
                 try_timeaction += 1
                 if try_timeaction <= max_try:
@@ -123,7 +123,7 @@ class ReActManager:
             else:
                 try:
                     # rag_Query 若只传 question，session 用工具默认；也可模型显式传
-                    observation = self.tools[act_name](*args)
+                    observation = self.tools[act_name](*args, **kwargs)
                 except Exception as e:
                     observation = f"工具执行错误:{e}"
 

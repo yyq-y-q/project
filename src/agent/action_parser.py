@@ -1,6 +1,6 @@
 import re
 import ast
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 
 class ActionParser:
@@ -9,146 +9,78 @@ class ActionParser:
 
     负责：
     1. 解析 Action 名称
-    2. 解析 Action 参数
+    2. 解析 Action 参数（支持位置参数与关键字参数，如 file_Write(file_path="a.txt", content="x")）
     3. 转换参数类型
     """
 
     def __init__(self):
         pass
 
-
-    def parse_action(self, action: str) -> Tuple[str, List]:
-
-        match = re.match(
-            r"(\w+)\((.*?)\)",
-            action,
-            re.DOTALL
-        )
-
+    def parse_action(self, action: str) -> Tuple[str, List, Dict]:
+        match = re.match(r"(\w+)\((.*?)\)", action, re.DOTALL)
         if not match:
-            raise ValueError(
-                "Invalid function call syntax"
-            )
+            raise ValueError("Invalid function call syntax")
 
         act_name = match.group(1)
-
         args = match.group(2).strip()
-
-        arguments = self._split_args_fixed(args)
-
-        return act_name, arguments
-
-
+        positional, kwargs = self._split_args_fixed(args)
+        return act_name, positional, kwargs
 
     def _split_args_fixed(self, args: str):
-
-        # 保存最终参数
-        arguments = []
-
-        # 当前字符
-        char = ""
-
-        # 是否在字符串中
-        in_string = False
-
-        # 括号栈
-        bracket_stack = []
-
-        # 当前字符串使用的引号
-        string_char = None
-
-        # 当前参数
+        """拆分参数。返回 (位置参数列表, 关键字参数字典)。"""
+        raw_items = []
         current_args = ""
-
+        in_string = False
+        string_char = None
+        bracket_stack = []
         i = 0
 
-
         while i < len(args):
-
             char = args[i]
-
-
             if not in_string:
-
-                # 进入字符串
                 if char in ["'", '"']:
-
                     in_string = True
-
                     string_char = char
-
                     current_args += char
-
-
-                # 记录括号
                 elif char in "({[":
-
                     bracket_stack.append(char)
-
                     current_args += char
-
-
-                # 结束括号
                 elif char in ")}]":
-
-                    bracket_stack.pop()
-
+                    if bracket_stack:
+                        bracket_stack.pop()
                     current_args += char
-
-
-                # 当前参数结束
                 elif char == "," and not bracket_stack:
-
-                    arguments.append(
-                        self.single_py(
-                            current_args.strip()
-                        )
-                    )
-
+                    raw_items.append(current_args.strip())
                     current_args = ""
-
-
                 else:
-
                     current_args += char
-
-
             else:
-
                 current_args += char
-
-
-                # 判断字符串结束
-                if (
-                    string_char == char
-                    and args[i - 1] != "\\"
-                ):
-
+                if string_char == char and args[i - 1] != "\\":
                     in_string = False
-
                     string_char = None
-
-
             i += 1
 
-
-
-        # 最后一个参数
         if current_args.strip():
+            raw_items.append(current_args.strip())
 
-            arguments.append(
-                self.single_py(
-                    current_args.strip()
-                )
+        positional = []
+        kwargs = {}
+        for item in raw_items:
+            if not item:
+                continue
+            m = re.match(
+                r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$",
+                item,
+                re.DOTALL,
             )
-
-
-        return arguments
-
-
+            if m:
+                kwargs[m.group(1)] = self.single_py(m.group(2).strip())
+            else:
+                positional.append(self.single_py(item))
+        return positional, kwargs
 
     def single_py(self, args: str):
-
         """
         将参数转换成 Python 类型
 
@@ -184,11 +116,9 @@ class ActionParser:
 
             return args
 
-
         try:
 
             return ast.literal_eval(args)
-
 
         except (ValueError, SyntaxError):
 
