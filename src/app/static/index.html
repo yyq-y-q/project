@@ -276,6 +276,42 @@
       display: inline-flex; align-items: center; gap: 5px;
     }
     .file-dl-chip:hover { background: #e0e7ff; }
+
+    /* ===== 消息操作行 ===== */
+    .msg-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
+    .msg-act {
+      display: inline-flex; align-items: center; gap: 4px;
+      border: 1px solid var(--line); background: transparent;
+      color: var(--muted); font-size: 11px; padding: 3px 9px; border-radius: 999px;
+      cursor: pointer; transition: background .12s, color .12s, border-color .12s;
+      font-family: inherit;
+    }
+    .msg-act:hover { background: #eef2ff; color: #3730a3; border-color: #c7d2fe; }
+    .msg-act svg { width: 12px; height: 12px; }
+    .msg.user .msg-act:hover { background: #e0f2fe; color: #075985; border-color: #bae6fd; }
+    @media (max-width: 880px) {
+      .msg-act { min-height: 44px; padding: 8px 12px; font-size: 12px; }
+    }
+
+    /* ===== 引用条 ===== */
+    .quote-bar {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 8px; padding: 8px 12px;
+      background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 10px;
+      font-size: 12px; color: #3730a3;
+    }
+    .quote-bar[hidden] { display: none; }
+    .quote-bar .q-role { font-weight: 600; flex-shrink: 0; }
+    .quote-bar .q-body { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .quote-bar button { border: none; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; padding: 0 4px; flex-shrink: 0; }
+
+    /* ===== 文本打开弹窗 ===== */
+    .text-modal { width: min(640px, 100%); }
+    .text-modal .modal-body pre {
+      margin: 0; white-space: pre-wrap; word-break: break-word;
+      font-family: inherit; font-size: 13px; line-height: 1.65; color: var(--text);
+    }
+    .text-modal .modal-body .text-meta { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
     .typing { display: inline-flex; gap: 5px; align-items: center; padding: 6px 0; }
     .typing span {
       width: 7px; height: 7px; border-radius: 50%; background: #a5aec6;
@@ -410,6 +446,25 @@
       </div>
     </div>
 
+    <!-- 文本打开弹窗 -->
+    <div class="modal-mask" id="textMask" hidden>
+      <div class="modal text-modal">
+        <div class="modal-head">
+          <b id="textTitle">消息文本</b>
+          <span class="hint" id="textMeta"></span>
+          <button class="btn-icon" type="button" id="textClose" aria-label="关闭">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body" id="textBody"></div>
+        <div class="modal-foot">
+          <span class="hint">全文查看，可复制或下载为 .txt</span>
+          <button class="btn btn-ghost" type="button" id="textCopy">复制</button>
+          <button class="btn btn-ghost" type="button" id="textDownload">下载 .txt</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 主聊天 -->
     <section class="main">
       <header class="topbar">
@@ -431,6 +486,11 @@
 
       <div class="composer-wrap">
         <div class="composer" id="composer">
+          <div class="quote-bar" id="quoteBar" hidden>
+            <span class="q-role" id="quoteRole"></span>
+            <span class="q-body" id="quoteText"></span>
+            <button type="button" id="quoteCancel" title="取消引用" aria-label="取消引用">×</button>
+          </div>
           <div class="chip-files" id="fileChips"></div>
           <textarea id="input" rows="2" placeholder="输入问题，或上传文档 / 表格 / 代码… Enter 发送，Shift+Enter 换行"></textarea>
           <div class="composer-bar">
@@ -472,6 +532,7 @@
     activeId: null,
     files: [],
     sending: false,
+    quote: null, // { role: "user"|"bot", content: "..." }
   };
 
   function uid() {
@@ -607,6 +668,87 @@
       .replace(/>/g, "&gt;");
   }
 
+  function roleName(r) { return r === "user" ? "我" : "Iris"; }
+
+  function fallbackCopy(text, done) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); done(); } catch (_) { }
+    ta.remove();
+  }
+
+  function copyMsg(m, btn) {
+    const text = m.content || "";
+    const done = () => {
+      if (btn) {
+        const old = btn.innerHTML;
+        btn.innerHTML = "已复制";
+        setTimeout(() => { btn.innerHTML = old; }, 1200);
+      }
+    };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+    } else {
+      fallbackCopy(text, done);
+    }
+  }
+
+  function renderQuoteBar() {
+    const bar = $("quoteBar");
+    if (!state.quote) { bar.hidden = true; return; }
+    bar.hidden = false;
+    $("quoteRole").textContent = roleName(state.quote.role) + "：";
+    const c = state.quote.content || "";
+    $("quoteText").textContent = c.replace(/\s+/g, " ").slice(0, 140) + (c.length > 140 ? "…" : "");
+  }
+
+  function quoteMsg(m) {
+    state.quote = { role: m.role, content: (m.content || "").slice(0, 300) };
+    renderQuoteBar();
+    $("input").focus();
+  }
+
+  function continueInNew(m) {
+    newSession(true);
+    state.quote = { role: m.role, content: (m.content || "").slice(0, 300) };
+    renderQuoteBar();
+    $("input").focus();
+  }
+
+  function openText(m) {
+    $("textTitle").textContent = roleName(m.role) + " 的消息";
+    const meta = [];
+    if (m.meta && m.meta.mode) meta.push("模式: " + m.meta.mode);
+    if (m.meta && m.meta.reason) meta.push("路由: " + m.meta.reason);
+    if (m.meta && m.meta.timing != null) meta.push("耗时: " + Number(m.meta.timing).toFixed(2) + "s");
+    $("textMeta").textContent = meta.join(" · ");
+    const body = $("textBody");
+    body.innerHTML = "";
+    const pre = document.createElement("pre");
+    pre.textContent = m.content || "";
+    body.appendChild(pre);
+    $("textMask").hidden = false;
+    window.__textMsg = m;
+  }
+
+  function closeText() { $("textMask").hidden = true; }
+
+  function downloadTxt(text, name) {
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+  }
+
   function renderMessages() {
     const box = $("messages");
     const s = active();
@@ -704,6 +846,27 @@
 
       row.appendChild(av);
       row.appendChild(bub);
+      if (!m.pending) {
+        const acts = document.createElement("div");
+        acts.className = "msg-actions";
+        const mk = (label, icon, fn) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "msg-act";
+          b.innerHTML = icon + label;
+          b.onclick = (ev) => { ev.stopPropagation(); fn(b); };
+          acts.appendChild(b);
+        };
+        const icoCopy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+        const icoQuote = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>';
+        const icoNew = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>';
+        const icoText = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 10h10M4 14h16M4 18h10"/></svg>';
+        mk("复制", icoCopy, (b) => copyMsg(m, b));
+        mk("引用", icoQuote, () => quoteMsg(m));
+        mk("新对话继续", icoNew, () => continueInNew(m));
+        mk("文本打开", icoText, () => openText(m));
+        row.appendChild(acts);
+      }
       box.appendChild(row);
     }
     const sc = $("chatScroll");
@@ -763,16 +926,23 @@
   async function send() {
     if (state.sending) return;
     const text = $("input").value.trim();
-    if (!text && !state.files.length) return;
+    if (!text && !state.files.length && !state.quote) return;
 
     const s = ensureSession();
     if (s.title === "新对话" && text) {
       s.title = text.slice(0, 28) + (text.length > 28 ? "…" : "");
     }
 
+    const quoted = state.quote;
+    let payload = text;
+    if (quoted) {
+      const head = "【引用" + roleName(quoted.role) + "】" + (quoted.content || "").replace(/\n+/g, " ").slice(0, 300);
+      payload = (head + (text ? "\n\n" + text : ""));
+    }
+
     const userMsg = {
       role: "user",
-      content: text || "（仅上传附件）",
+      content: text || (quoted ? "（引用" + roleName(quoted.role) + "消息）" : "（仅上传附件）"),
       meta: state.files.length ? { attachments: state.files.map((f) => ({ filename: f.name })) } : null,
     };
     s.messages.push(userMsg);
@@ -780,6 +950,8 @@
     s.messages.push(pending);
     s.updatedAt = Date.now();
     $("input").value = "";
+    state.quote = null;
+    renderQuoteBar();
     const filesSnap = state.files.slice();
     setFiles([]);
     state.sending = true;
@@ -790,7 +962,7 @@
 
     try {
       const fd = new FormData();
-      fd.append("message", text);
+      fd.append("message", payload);
       fd.append("session_id", s.id);
       fd.append("use_memory", "true");
       fd.append("unpack_paste", "true");
@@ -968,6 +1140,20 @@
       refreshHealth();
     } catch (e) { alert(String(e.message || e)); }
     finally { $("btnIngest").disabled = false; }
+  };
+
+  $("quoteCancel").onclick = () => { state.quote = null; renderQuoteBar(); $("input").focus(); };
+  $("textClose").onclick = closeText;
+  $("textMask").onclick = (e) => { if (e.target === $("textMask")) closeText(); };
+  $("textCopy").onclick = () => {
+    const m = window.__textMsg;
+    if (m) copyMsg(m);
+  };
+  $("textDownload").onclick = () => {
+    const m = window.__textMsg;
+    if (!m) return;
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadTxt(m.content || "", (roleName(m.role) === "我" ? "我" : "Iris") + "-" + stamp + ".txt");
   };
 
   $("input").addEventListener("keydown", (e) => {
