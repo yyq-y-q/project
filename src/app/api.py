@@ -16,6 +16,7 @@ import logging
 import os
 import secrets
 import time
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -79,6 +80,17 @@ async def lifespan(_: FastAPI):
         message = "; ".join(issues)
         logger.critical("runtime configuration rejected: %s", message)
         raise RuntimeError(f"invalid runtime configuration: {message}")
+
+    def _warmup() -> None:
+        try:
+            from app.services import get_rag
+
+            get_rag()
+            logger.info("RAG warmup: models loaded")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("RAG warmup failed (will load on first request): %s", e)
+
+    threading.Thread(target=_warmup, daemon=True, name="rag-warmup").start()
     yield
 
 
