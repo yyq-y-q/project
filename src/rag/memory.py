@@ -27,13 +27,13 @@ def normalize_session_id(session_id: str | None) -> str:
 
 
 class MemoryManager:
-    def __init__(self, llm: LLMGenerator):
+    def __init__(self, llm: LLMGenerator, persist_path=None):
 
         # 最大保留多少轮
         self.max_rounds = Config.MAX_HISTORY_ROUNDS
 
         # 保存路径
-        self.persist_path = Config.HISTORY_PERSIST_PATH
+        self.persist_path = persist_path or Config.HISTORY_PERSIST_PATH
 
         # 是否开启摘要
         self.enable_summary = Config.ENABLE_HISTORY_SUMMARY
