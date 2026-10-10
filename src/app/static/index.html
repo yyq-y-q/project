@@ -247,7 +247,14 @@
     }
     .msg.bot .bubble { border-bottom-left-radius: 6px; }
     .msg.error .bubble { border-color: var(--error-line); background: var(--error-bg); color: var(--error-text); }
-    .meta-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .meta-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
+    .meta-toggle {
+      border: none; background: none; color: var(--muted);
+      font-size: 11px; padding: 2px 6px; border-radius: 6px; cursor: pointer;
+    }
+    .meta-toggle:hover { color: var(--primary); background: var(--bg-soft); }
+    .meta-detail { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .meta-detail[hidden] { display: none; }
     .tag {
       font-size: 11px; border-radius: 999px; padding: 3px 9px;
       background: #f1f3f8; color: #5b6478; border: 1px solid var(--line);
@@ -606,13 +613,26 @@
         bub.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
       } else {
         bub.innerHTML = esc(m.content);
-        if (m.meta && (m.meta.mode || m.meta.reason)) {
+        if (m.meta && (m.meta.mode || m.meta.reason || m.meta.timing != null)) {
+          const wrap = document.createElement("div");
+          wrap.className = "meta-row";
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "meta-toggle";
+          btn.textContent = "详情 ▾";
           const meta = document.createElement("div");
-          meta.className = "meta-row";
+          meta.className = "meta-detail";
+          meta.hidden = true;
           if (m.meta.mode) meta.innerHTML += `<span class="tag mode">${esc(m.meta.mode)}</span>`;
           if (m.meta.reason) meta.innerHTML += `<span class="tag">${esc(m.meta.reason)}</span>`;
           if (m.meta.timing != null) meta.innerHTML += `<span class="tag">${Number(m.meta.timing).toFixed(2)}s</span>`;
-          bub.appendChild(meta);
+          btn.onclick = () => {
+            meta.hidden = !meta.hidden;
+            btn.textContent = meta.hidden ? "详情 ▾" : "详情 ▴";
+          };
+          wrap.appendChild(btn);
+          wrap.appendChild(meta);
+          bub.appendChild(wrap);
         }
         const sources = (m.meta && m.meta.sources) || [];
         const cites = (m.meta && m.meta.cite_ids) || [];
