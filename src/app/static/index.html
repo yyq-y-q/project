@@ -123,6 +123,12 @@
     .sess-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; cursor: pointer; padding: 4px 4px; }
     .sess .t { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .sess .s { font-size: 11px; color: var(--sidebar-muted); }
+    .rename-input {
+      width: 100%; border: none; outline: none;
+      background: rgba(255,255,255,.10); color: var(--sidebar-text);
+      border-radius: 6px; padding: 2px 6px; font-size: 13px;
+    }
+    .rename-input:focus { outline: none; box-shadow: 0 0 0 1px rgba(129,140,248,.6); }
     .sess-ops { display: flex; gap: 2px; opacity: 0; transition: opacity .15s ease; }
     .sess:hover .sess-ops, .sess.active .sess-ops, .sess:focus-within .sess-ops { opacity: 1; }
     @media (hover: none) { .sess-ops { opacity: .6; } }
@@ -646,6 +652,7 @@
     for (const s of list) {
       const b = document.createElement("div");
       b.className = "sess" + (s.id === state.activeId ? " active" : "");
+      b.dataset.id = s.id;
       const main = document.createElement("div");
       main.className = "sess-main";
       main.innerHTML = `<span class="t"></span><span class="s"></span>`;
@@ -685,11 +692,37 @@
   function renameSession(id) {
     const s = state.sessions.find((x) => x.id === id);
     if (!s) return;
-    const t = prompt("重命名会话：", s.title || "");
-    if (t === null) return;
-    s.title = t.trim() || "未命名";
-    save();
-    renderSessions();
+    const row = Array.from($("sessionList").querySelectorAll(".sess")).find((el) => el.dataset.id === id);
+    if (!row || row.querySelector(".rename-input")) return;
+    const tEl = row.querySelector(".t");
+    if (!tEl) return;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "rename-input";
+    input.value = s.title || "";
+    input.maxLength = 60;
+    tEl.replaceWith(input);
+    input.focus();
+    input.select();
+    let done = false;
+    const commit = (saveIt) => {
+      if (done) return;
+      done = true;
+      const v = input.value.trim();
+      s.title = v || "未命名";
+      if (saveIt) {
+        save();
+        renderSessions();
+      } else {
+        renderSessions();
+      }
+    };
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") { ev.preventDefault(); commit(true); }
+      else if (ev.key === "Escape") { ev.stopPropagation(); commit(false); }
+    });
+    input.addEventListener("blur", () => commit(true));
+    input.addEventListener("click", (ev) => ev.stopPropagation());
   }
 
   function deleteSession(id) {
