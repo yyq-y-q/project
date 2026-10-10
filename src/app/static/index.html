@@ -100,16 +100,41 @@
     .sessions { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 4px; padding: 2px; }
     .sessions::-webkit-scrollbar { width: 5px; }
     .sessions::-webkit-scrollbar-thumb { background: rgba(255,255,255,.14); border-radius: 8px; }
+    .sess-search {
+      display: flex; align-items: center; gap: 6px;
+      margin: 2px 0 6px; padding: 6px 10px;
+      background: rgba(255,255,255,.06); border-radius: 10px;
+      color: var(--sidebar-muted);
+    }
+    .sess-search input {
+      flex: 1; min-width: 0; border: none; outline: none;
+      background: transparent; color: var(--sidebar-text); font-size: 12px;
+    }
+    .sess-search input::placeholder { color: var(--sidebar-muted); }
+    .sess-search input:focus { outline: none; }
     .sess {
-      text-align: left; border: none; border-radius: 10px;
+      border-radius: 10px;
       background: transparent; color: var(--sidebar-text);
-      padding: 10px 12px; display: flex; flex-direction: column; gap: 2px;
+      padding: 6px 6px 6px 4px; display: flex; align-items: center; gap: 4px;
       transition: background .15s ease;
     }
     .sess:hover { background: rgba(255,255,255,.06); }
     .sess.active { background: rgba(99,102,241,.22); box-shadow: inset 2px 0 0 #818cf8; }
+    .sess-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; cursor: pointer; padding: 4px 4px; }
     .sess .t { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .sess .s { font-size: 11px; color: var(--sidebar-muted); }
+    .sess-ops { display: flex; gap: 2px; opacity: 0; transition: opacity .15s ease; }
+    .sess:hover .sess-ops, .sess.active .sess-ops, .sess:focus-within .sess-ops { opacity: 1; }
+    @media (hover: none) { .sess-ops { opacity: .6; } }
+    .sess-op {
+      width: 26px; height: 26px; padding: 0; flex: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: none; border-radius: 8px;
+      background: transparent; color: var(--sidebar-muted);
+      transition: background .15s ease, color .15s ease;
+    }
+    .sess-op:hover { background: rgba(255,255,255,.12); color: #fff; }
+    .sess-op.del:hover { background: rgba(244,63,94,.25); color: #fda4af; }
 
     .side-foot { border-top: 1px solid var(--sidebar-line); padding-top: 14px; display: flex; flex-direction: column; gap: 10px; }
     .status-pill { display: flex; gap: 8px; flex-wrap: wrap; font-size: 11px; }
@@ -382,6 +407,10 @@
         <span>历史会话</span>
         <button class="btn btn-ghost" type="button" id="btnClearSess" style="padding:4px 8px;font-size:11px">清空列表</button>
       </div>
+      <div class="sess-search">
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="flex:none"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="sessSearch" type="text" placeholder="搜索会话" autocomplete="off" />
+      </div>
       <div class="sessions" id="sessionList"></div>
 
       <div class="side-foot">
@@ -606,31 +635,74 @@
   function renderSessions() {
     const box = $("sessionList");
     box.innerHTML = "";
-    if (!state.sessions.length) {
-      box.innerHTML = '<div style="padding:12px;color:#9ca3af;font-size:12px">暂无会话，点击上方开始</div>';
+    const q = ($("sessSearch") ? $("sessSearch").value : "").trim().toLowerCase();
+    const list = q
+      ? state.sessions.filter((s) => (s.title || "").toLowerCase().includes(q))
+      : state.sessions;
+    if (!list.length) {
+      box.innerHTML = '<div style="padding:12px;color:#9ca3af;font-size:12px">' + (q ? "无匹配会话" : "暂无会话，点击上方开始") + "</div>";
       return;
     }
-    for (const s of state.sessions) {
-      const b = document.createElement("button");
-      b.type = "button";
+    for (const s of list) {
+      const b = document.createElement("div");
       b.className = "sess" + (s.id === state.activeId ? " active" : "");
-      b.innerHTML = `<span class="t"></span><span class="s"></span>`;
-      b.querySelector(".t").textContent = s.title || "未命名";
-      b.querySelector(".s").textContent = new Date(s.updatedAt || Date.now()).toLocaleString("zh-CN", {
+      const main = document.createElement("div");
+      main.className = "sess-main";
+      main.innerHTML = `<span class="t"></span><span class="s"></span>`;
+      main.querySelector(".t").textContent = s.title || "未命名";
+      main.querySelector(".s").textContent = new Date(s.updatedAt || Date.now()).toLocaleString("zh-CN", {
         month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit",
       });
-      b.onclick = () => {
+      main.onclick = () => {
         state.activeId = s.id;
         save();
         renderSessions();
         renderMessages();
         closeMobile();
       };
+      const ops = document.createElement("div");
+      ops.className = "sess-ops";
+      const mkOp = (title, html, cls, fn) => {
+        const o = document.createElement("button");
+        o.type = "button";
+        o.className = "sess-op" + (cls ? " " + cls : "");
+        o.title = title;
+        o.innerHTML = html;
+        o.onclick = (ev) => { ev.stopPropagation(); fn(); };
+        ops.appendChild(o);
+      };
+      mkOp("重命名", '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>', "", () => renameSession(s.id));
+      mkOp("删除", '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>', "del", () => deleteSession(s.id));
+      b.appendChild(main);
+      b.appendChild(ops);
       box.appendChild(b);
     }
     const cur = active();
     $("chatTitle").textContent = cur ? (cur.title || "对话") : "新对话";
     $("sessIdLabel").textContent = cur ? "会话 " + cur.id : "";
+  }
+
+  function renameSession(id) {
+    const s = state.sessions.find((x) => x.id === id);
+    if (!s) return;
+    const t = prompt("重命名会话：", s.title || "");
+    if (t === null) return;
+    s.title = t.trim() || "未命名";
+    save();
+    renderSessions();
+  }
+
+  function deleteSession(id) {
+    const idx = state.sessions.findIndex((x) => x.id === id);
+    if (idx < 0) return;
+    if (!confirm("删除该会话？此操作不可恢复。")) return;
+    state.sessions.splice(idx, 1);
+    if (state.activeId === id) {
+      state.activeId = state.sessions.length ? state.sessions[0].id : null;
+    }
+    save();
+    renderSessions();
+    renderMessages();
   }
 
   function attachFileChips(bub, text) {
@@ -1094,8 +1166,10 @@
 
   // events
   $("btnNew").onclick = () => newSession(true);
+  $("sessSearch").addEventListener("input", () => { renderSessions(); });
   $("btnClearSess").onclick = () => {
     if (!confirm("清空本机会话列表？（不影响服务端记忆文件）")) return;
+    $("sessSearch").value = "";
     state.sessions = [];
     state.activeId = null;
     save();
