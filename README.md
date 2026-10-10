@@ -15,6 +15,25 @@
 | 错误 | `app.errors.AppError` 统一 `code/message/details`，API 映射 HTTP 状态 |
 | 会话 | `session_id` 按调用者隔离多轮记忆，上传工作区与记忆互不可见，支持并发多用户会话文件 |
 
+## 技术栈
+
+| 层 | 组件 | 说明 |
+|------|------|------|
+| 运行时 | Python（版本由 `.python-version` 锁定） | 服务端统一解释器 |
+| 依赖编排 | `uv` + `uv.lock` | 虚拟环境 / 依赖安装 / 可复现构建 |
+| LLM | DeepSeek Chat API（`DEEP_SEEK_KEY`） | 生成、摘要、Agent 推理 |
+| 嵌入模型 | BAAI/bge-m3（SentenceTransformers） | 文档切块向量化；服务器经 `HF_ENDPOINT=https://hf-mirror.com` 拉取 |
+| 向量库 | Chroma（`data/chroma_db`） | 稠密检索 |
+| 关键词索引 | BM25（`data/bm25_index.json`） | 稀疏检索 |
+| 检索融合 | RRF + Rerank | 两路召回融合排序后进入 LLM |
+| Web 框架 | FastAPI + uvicorn | `/v1/*` REST API；`KB_HOST`/`KB_PORT`/`KB_WORKERS` 可配 |
+| 数据存储 | SQLite | `query.db` 业务表 / `logger.db` 审计 / `governance.db` 动态密钥与治理 |
+| 命令行 | `mykb` / `myagent` | 构建索引、表 ingest、冒烟、混合问答、Agent、serve、部署自检 |
+| 前端 | 单文件静态 HTML（原生 JS，无构建） | `src/app/static/index.html`，WebSocket 直连 `/v1/*` |
+| 部署 | nginx + systemd / Docker compose | HTTPS 反代、HTTP→HTTPS 跳转、IP 限流、守护进程 |
+| TLS | certbot（Let's Encrypt）/ 自签脚本 | `deploy/certs/`；公网域名用正式证书，内网用自签 |
+| 测试 | pytest | `tests/`；不依赖真实模型与网络，可离线运行 |
+
 ## 目录
 
 ```text
@@ -112,6 +131,27 @@ uv sync --group dev
 - 变更流程权限（`change.submit/approve/execute/rollback`）在 `change_service` 内校验，与「审批→执行→回滚」工作流一一对应
 - 所有 API Key 均需 `X-API-Key` 头；生产环境未配置任何 key 时服务拒绝启动（`check-deploy` 会报 `auth_keys_missing`）
 
+### 角色功能速查（日常操作视角）
+
+| 角色 | 知识问答 | 上传附件 / 下载会话文件 | 运行 Agent（分析、生成文件） | 重建索引 | 导入表数据 | 变更流程 | 审计 |
+|------|---------|--------------------------|-------------------------------|----------|------------|----------|------|
+| `admin` | ✅ | ✅ | ✅ | ✅ | ✅ | 提交→审批→执行→回滚全流程 | ✅ |
+| `user` | ✅ | ✅ | ✅ | 403 | 403 | — | — |
+| `readonly` | ✅ | ✅ | 403 | 403 | 403 | — | — |
+| `change_requester` | ✅ | ✅ | 403 | 403 | 403 | 提交变更 | — |
+| `approver` | ✅ | ✅ | 403 | 403 | 403 | 审批变更 | ✅ |
+| `executor` | ✅ | ✅ | 403 | 403 | 403 | 执行 / 回滚变更 | ✅ |
+| `auditor` | ✅ | ✅ | 403 | 403 | 403 | — | ✅ 只读 |
+
+要点：
+
+- **知识问答**指 `/v1/rag/ask`、`/v1/sqlite/query`、`/v1/hybrid/ask` 与 `/v1/chat` 的非 Agent 分流；所有角色均可使用
+- **附件与下载**：`/v1/chat` 的 `files` 上传、`/v1/session/files` 列表与 `/v1/session/files/download` 下载都只要求 `knowledge.read`，因此 **user / readonly / 各变更角色都能上传附件并下载 Iris 生成的文件**；但 readonly 无法让 Iris 去解析/生成文件（那需要 Agent）
+- **Agent 是 user 与 readonly 的分水岭**：`/v1/agent/run`、`/v1/chat` 的 `force_mode=agent` 仅 admin / user 可用；readonly 发起会收到 403 并提示改用知识库问法
+- **重建索引 / 导入表数据**仅 admin：WebUI 侧边栏按钮对所有登录角色可见，但非 admin 点击会收到 403（后端以 `X-API-Key` 身份判定，不看界面）
+- 变更角色（change_requester / approver / executor）只服务于「提交→审批→执行→回滚」工作流，日常问答能力与 readonly 相当（均无 Agent）
+- 鉴权链：`X-API-Key` → 静态或动态 key → `Role` → 权限集（`auth.py::DEFAULT_PERMISSIONS`）→ 端点 `require_permission(...)`
+
 ## 自动化测试
 
 测试由 pytest 管理，统一放在 `tests/`，按被测模块拆分文件。当前测试覆盖 BM25 索引的构建/加载/清理与检索、RRF 排名融合、LLM 响应和错误边界、模型实例惰性复用。测试使用临时目录及替身对象，不请求真实模型服务，也不下载推理模型。
@@ -176,6 +216,45 @@ uv run mykb agent -t "研发部有谁？什么是RAG？"
 | .txt .md .docx .pdf(文字层) | RAG |
 | .xlsx .csv | sqlite ingest |
 | 扫描 PDF | 跳过（待 OCR） |
+
+## 输入 / 输出
+
+### 输入
+
+| 输入 | 形态 | 去向 | 入口 |
+|------|------|------|------|
+| 叙述文档 | txt / md / docx / 文字层 PDF | RAG 索引（切块 → 向量 + BM25） | 放入 `data/raw/` 后 `mykb rag-rebuild` |
+| 业务表 | xlsx / csv | SQLite `query.db`（校验 + LIMIT + 审计） | 放入 `data/raw/` 后 `mykb sqlite-ingest` |
+| 扫描件 PDF | 无文字层 | 跳过（待 OCR 支持） | — |
+| 对话问题 | 文本消息 | 自动分流 sql / rag / hybrid / agent / chat | `POST /v1/chat` 或 WebUI 输入框 |
+| 对话附件 | 文档 / 表格 / 代码 / 任意文件 | 会话工作区 `data/chat_uploads/<session>/` | `/v1/chat` 的 `files` multipart、粘贴代码块、WebUI 拖拽 |
+
+### 输出
+
+| 输出 | 去向 | 说明 |
+|------|------|------|
+| 问答回答 | 请求响应 / WebUI | 带 `sources`（引用来源）与 `cite_ids`；hybrid 含表结果 + 概念解释 |
+| Iris 生成的文件 | 会话工作区 `data/chat_uploads/<session>/` | Agent 产物（如填好的 xlsx / 整理的 docx），经 `/v1/session/files` 列表、`/v1/session/files/download` 下载 |
+| SQL 查询结果 | 请求响应 | 只读网关，自动 LIMIT，逐条审计 |
+| 审计与运行日志 | `data/sqlite/logger.db`、`data/logs/app.log` | SQL 执行、变更、鉴权、错误留痕 |
+| 临时文件 | `data/chat_uploads/<session>/` | 按 `KB_TEMP_FILE_TTL_MINUTES` 到期自动清理 |
+
+### 一次问答的数据流
+
+```text
+data/raw 原件
+  ├─ 文档 → rag-rebuild → Chroma 向量 + BM25 索引
+  └─ 表格 → sqlite-ingest → query.db
+                │
+提问（/v1/chat）→ 自动分流
+  ├─ 知识问题 → 两路召回 → RRF → Rerank → LLM → 带引用回答
+  ├─ 表问题   → SQL 校验/ACL → 查询 → LLM 组织 → 表结果回答
+  ├─ 混合问题 → SQL + RAG 一次调用汇总
+  ├─ 代码/文件任务 → Agent 沙箱（读附件 → 工具调用 → 生成文件到工作区）
+  └─ 寒暄     → 直接对话
+                │
+回答（含 sources/cite_ids）→ WebUI 气泡；生成文件 → 工作区可下载
+```
 
 ## API 摘要
 
