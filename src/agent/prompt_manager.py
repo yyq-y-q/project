@@ -20,7 +20,8 @@ class PromptManager:
         self.work_path = work_path
 
         self.tools = {
-            func.__name__: func
+            getattr(func, "__name__", None)
+            or getattr(getattr(func, "func", None), "__name__", type(func).__name__): func
             for func in tools
         }
 
@@ -38,7 +39,10 @@ class PromptManager:
 
         for func in self.tools.values():
 
-            name = func.__name__
+            name = (
+                getattr(func, "__name__", None)
+                or getattr(getattr(func, "func", None), "__name__", type(func).__name__)
+            )
 
             args = inspect.signature(func)
 

@@ -110,11 +110,15 @@ def sqlite_smoke():
 
     setup_logging()
     try:
+        from app.auth import local_admin_principal
+
+        p = local_admin_principal("sqlite-smoke")
         out = TableService().query(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
+            principal=p,
         )
         _dump(out)
-        out2 = TableService().query("SELECT id, name, dept FROM employees LIMIT 5")
+        out2 = TableService().query("SELECT id, name, dept FROM employees LIMIT 5", principal=p)
         _dump(out2)
         sys.exit(0)
     except Exception as e:

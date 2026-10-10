@@ -18,7 +18,11 @@ class ReActManager:
     ):
         self.work_Path = work_Path
         self.session_id = session_id or "default"
-        self.tools = {func.__name__: func for func in tools}
+        self.tools = {
+            getattr(func, "__name__", None)
+            or getattr(getattr(func, "func", None), "__name__", type(func).__name__): func
+            for func in tools
+        }
         self.model = model
         self.model_client = ModelClient(model)
         self.action_parser = ActionParser()
