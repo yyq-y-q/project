@@ -279,6 +279,7 @@
 
     /* ===== 消息操作行 ===== */
     .msg-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
+    .meta-detail .msg-actions { flex: 1 1 100%; margin-top: 0; margin-bottom: 4px; }
     .msg-act {
       display: inline-flex; align-items: center; gap: 4px;
       border: 1px solid var(--line); background: transparent;
@@ -788,27 +789,51 @@
       } else {
         bub.innerHTML = esc(m.content);
         attachFileChips(bub, m.content);
-        if (m.meta && (m.meta.mode || m.meta.reason || m.meta.timing != null)) {
-          const wrap = document.createElement("div");
-          wrap.className = "meta-row";
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "meta-toggle";
-          btn.textContent = "详情 ▾";
-          const meta = document.createElement("div");
-          meta.className = "meta-detail";
-          meta.hidden = true;
-          if (m.meta.mode) meta.innerHTML += `<span class="tag mode">${esc(m.meta.mode)}</span>`;
-          if (m.meta.reason) meta.innerHTML += `<span class="tag">${esc(m.meta.reason)}</span>`;
-          if (m.meta.timing != null) meta.innerHTML += `<span class="tag">${Number(m.meta.timing).toFixed(2)}s</span>`;
-          btn.onclick = () => {
-            meta.hidden = !meta.hidden;
-            btn.textContent = meta.hidden ? "详情 ▾" : "详情 ▴";
-          };
-          wrap.appendChild(btn);
-          wrap.appendChild(meta);
-          bub.appendChild(wrap);
-        }
+        // 详情折叠：消息操作 + 元信息标签（默认隐藏）
+        const wrap = document.createElement("div");
+        wrap.className = "meta-row";
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "meta-toggle";
+        btn.textContent = "详情 ▾";
+        const meta = document.createElement("div");
+        meta.className = "meta-detail";
+        meta.hidden = true;
+        const acts = document.createElement("div");
+        acts.className = "msg-actions";
+        const mk = (label, icon, fn) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "msg-act";
+          b.innerHTML = icon + label;
+          b.onclick = (ev) => { ev.stopPropagation(); fn(b); };
+          acts.appendChild(b);
+        };
+        const icoCopy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+        const icoQuote = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>';
+        const icoNew = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>';
+        const icoText = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 10h10M4 14h16M4 18h10"/></svg>';
+        mk("复制", icoCopy, (b) => copyMsg(m, b));
+        mk("引用", icoQuote, () => quoteMsg(m));
+        mk("新对话继续", icoNew, () => continueInNew(m));
+        mk("文本打开", icoText, () => openText(m));
+        meta.appendChild(acts);
+        const addTag = (txt, cls) => {
+          const sp = document.createElement("span");
+          sp.className = "tag" + (cls ? " " + cls : "");
+          sp.textContent = txt;
+          meta.appendChild(sp);
+        };
+        if (m.meta && m.meta.mode) addTag(m.meta.mode, "mode");
+        if (m.meta && m.meta.reason) addTag(m.meta.reason);
+        if (m.meta && m.meta.timing != null) addTag(Number(m.meta.timing).toFixed(2) + "s");
+        btn.onclick = () => {
+          meta.hidden = !meta.hidden;
+          btn.textContent = meta.hidden ? "详情 ▾" : "详情 ▴";
+        };
+        wrap.appendChild(btn);
+        wrap.appendChild(meta);
+        bub.appendChild(wrap);
         const sources = (m.meta && m.meta.sources) || [];
         const cites = (m.meta && m.meta.cite_ids) || [];
         if (sources.length || cites.length) {
@@ -846,27 +871,6 @@
 
       row.appendChild(av);
       row.appendChild(bub);
-      if (!m.pending) {
-        const acts = document.createElement("div");
-        acts.className = "msg-actions";
-        const mk = (label, icon, fn) => {
-          const b = document.createElement("button");
-          b.type = "button";
-          b.className = "msg-act";
-          b.innerHTML = icon + label;
-          b.onclick = (ev) => { ev.stopPropagation(); fn(b); };
-          acts.appendChild(b);
-        };
-        const icoCopy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-        const icoQuote = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>';
-        const icoNew = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>';
-        const icoText = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 10h10M4 14h16M4 18h10"/></svg>';
-        mk("复制", icoCopy, (b) => copyMsg(m, b));
-        mk("引用", icoQuote, () => quoteMsg(m));
-        mk("新对话继续", icoNew, () => continueInNew(m));
-        mk("文本打开", icoText, () => openText(m));
-        row.appendChild(acts);
-      }
       box.appendChild(row);
     }
     const sc = $("chatScroll");
