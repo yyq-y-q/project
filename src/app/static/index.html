@@ -143,6 +143,51 @@
       .backdrop.show { display: block; }
     }
 
+    /* ===== 工作区文件弹窗 ===== */
+    .modal-mask[hidden] { display: none; }
+    .modal-mask {
+      position: fixed; inset: 0; z-index: 60;
+      background: rgba(8,12,22,.45);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .modal {
+      width: min(560px, 100%);
+      max-height: 78vh;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .modal-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+    }
+    .modal-head b { font-size: 14px; }
+    .modal-head .hint { flex: 1; font-size: 12px; color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .modal-body {
+      overflow: auto; padding: 8px 10px;
+      min-height: 120px;
+    }
+    .ws-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 9px 8px; border-radius: 10px;
+    }
+    .ws-row:hover { background: var(--bg-soft); }
+    .ws-row + .ws-row { border-top: 1px solid var(--line); }
+    .ws-info { flex: 1; min-width: 0; }
+    .ws-name { font-size: 13px; color: var(--text); word-break: break-all; }
+    .ws-info .hint { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .modal-foot {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 16px;
+      border-top: 1px solid var(--line);
+    }
+    .modal-foot .hint { flex: 1; font-size: 11px; color: var(--muted); }
+
     /* ===== 主区 ===== */
     .main {
       display: grid; grid-template-rows: auto 1fr auto;
@@ -299,6 +344,7 @@
         </div>
 
         <div class="side-actions">
+          <button class="btn btn-ghost" type="button" id="btnWorkspace" title="查看并下载当前会话工作区文件（Iris 生成 / 上传的附件）">工作区文件</button>
           <button class="btn btn-ghost" type="button" id="btnRebuild" title="重建叙述文档索引">重建索引</button>
           <button class="btn btn-ghost" type="button" id="btnIngest" title="导入 data/raw 下表格">导入表数据</button>
         </div>
@@ -330,6 +376,24 @@
         </details>
       </div>
     </aside>
+
+    <!-- 工作区文件弹窗 -->
+    <div class="modal-mask" id="wsMask" hidden>
+      <div class="modal">
+        <div class="modal-head">
+          <b>工作区文件</b>
+          <span class="hint" id="wsSess"></span>
+          <button class="btn-icon" type="button" id="wsClose" aria-label="关闭">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+        <div class="modal-body" id="wsList"></div>
+        <div class="modal-foot">
+          <span class="hint">文件保存在服务器该会话的工作区中，下载后落到你的设备。</span>
+          <button class="btn btn-ghost" type="button" id="wsRefresh">刷新</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 主聊天 -->
     <section class="main">
@@ -731,6 +795,7 @@
       save();
       renderSessions();
       renderMessages();
+      if (!$("wsMask").hidden) loadWorkspaceFiles();
       $("input").focus();
     }
   }
@@ -742,6 +807,74 @@
   function openMobile() {
     $("sidebar").classList.add("open");
     $("backdrop").classList.add("show");
+  }
+
+  function fmtSize(n) {
+    if (n < 1024) return n + " B";
+    if (n < 1048576) return (n / 1024).toFixed(1) + " KB";
+    return (n / 1048576).toFixed(1) + " MB";
+  }
+
+  async function downloadFile(sessionId, path) {
+    try {
+      const r = await fetch(apiBase() + "/v1/session/files/download?session_id=" + encodeURIComponent(sessionId) + "&path=" + encodeURIComponent(path), { headers: headersJson() });
+      if (!r.ok) {
+        const t = await r.text();
+        let j;
+        try { j = JSON.parse(t); } catch { j = null; }
+        throw new Error((j && j.error && j.error.message) || "下载失败");
+      }
+      const blob = await r.blob();
+      const a = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      a.href = url;
+      a.download = path.split("/").pop();
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (e) {
+      alert(String(e.message || e));
+    }
+  }
+
+  async function loadWorkspaceFiles() {
+    const s = ensureSession();
+    $("wsSess").textContent = "会话 " + s.id;
+    const box = $("wsList");
+    box.innerHTML = '<div class="hint" style="padding:12px">加载中…</div>';
+    try {
+      const r = await fetch(apiBase() + "/v1/session/files?session_id=" + encodeURIComponent(s.id), { headers: headersJson() });
+      const t = await r.text();
+      let j;
+      try { j = JSON.parse(t); } catch { throw new Error(t || r.statusText); }
+      if (!r.ok || j.ok === false) throw new Error((j.error && j.error.message) || "获取文件列表失败");
+      const files = j.files || [];
+      if (!files.length) {
+        box.innerHTML = '<div class="hint" style="padding:12px">暂无文件 —— 让 Iris 建文件，或在本会话上传附件后，这里会出现可下载的文件。</div>';
+        return;
+      }
+      box.innerHTML = "";
+      for (const f of files) {
+        const row = document.createElement("div");
+        row.className = "ws-row";
+        const info = document.createElement("div");
+        info.className = "ws-info";
+        info.innerHTML = '<div class="ws-name"></div><div class="hint"></div>';
+        info.querySelector(".ws-name").textContent = f.path;
+        info.querySelector(".hint").textContent = fmtSize(f.size) + " · " + new Date(f.mtime).toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+        const dl = document.createElement("button");
+        dl.type = "button";
+        dl.className = "btn btn-ghost";
+        dl.textContent = "下载";
+        dl.onclick = () => downloadFile(s.id, f.path);
+        row.appendChild(info);
+        row.appendChild(dl);
+        box.appendChild(row);
+      }
+    } catch (e) {
+      box.innerHTML = '<div class="hint" style="padding:12px">加载失败：' + esc(String(e.message || e)) + "</div>";
+    }
   }
 
   // events
@@ -758,6 +891,13 @@
   $("btnMenu").onclick = openMobile;
   $("backdrop").onclick = closeMobile;
   $("btnHealth").onclick = refreshHealth;
+  $("btnWorkspace").onclick = () => {
+    $("wsMask").hidden = false;
+    loadWorkspaceFiles();
+  };
+  $("wsClose").onclick = () => { $("wsMask").hidden = true; };
+  $("wsRefresh").onclick = loadWorkspaceFiles;
+  $("wsMask").onclick = (e) => { if (e.target === $("wsMask")) $("wsMask").hidden = true; };
   $("btnRebuild").onclick = async () => {
     $("btnRebuild").disabled = true;
     try {

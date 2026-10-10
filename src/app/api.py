@@ -651,6 +651,61 @@ def api_cleanup_temp_files(request: Request, p: Principal = Depends(get_principa
     return {"ok": True, "deleted": count}
 
 
+
+
+@app.get("/v1/session/files")
+def api_session_files(
+    session_id: str = "chat",
+    p: Principal = Depends(get_principal),
+) -> dict[str, Any]:
+    """列出当前会话工作区内的文件（上传附件 + Iris 生成的文件）。"""
+    require_permission(p, "knowledge.read")
+    scoped = scoped_session_id(p, session_id)
+    from app.chat_attachments import session_workspace
+
+    root = session_workspace(scoped).resolve()
+    items = []
+    for f in root.rglob("*"):
+        if f.is_file():
+            st = f.stat()
+            items.append(
+                {
+                    "path": f.relative_to(root).as_posix(),
+                    "name": f.name,
+                    "size": st.st_size,
+                    "mtime": int(st.st_mtime * 1000),
+                }
+            )
+    items.sort(key=lambda x: x["path"])
+    return {"ok": True, "session_id": scoped, "files": items}
+
+
+@app.get("/v1/session/files/download")
+def api_session_file_download(
+    session_id: str = "chat",
+    path: str = "",
+    p: Principal = Depends(get_principal),
+):
+    """下载当前会话工作区内的单个文件（路径沙箱，防越界）。"""
+    require_permission(p, "knowledge.read")
+    scoped = scoped_session_id(p, session_id)
+    from app.chat_attachments import session_workspace
+    from app.errors import AppError
+    from pathlib import Path
+
+    root = session_workspace(scoped).resolve()
+    raw = Path(path)
+    if raw.is_absolute():
+        raise AppError("路径必须为相对路径", stage="session.files")
+    target = (root / raw).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as e:
+        raise AppError("路径越界", stage="session.files") from e
+    if not target.is_file():
+        raise AppError("文件不存在", stage="session.files")
+    return FileResponse(str(target), filename=target.name)
+
 @app.post("/v1/rag/rebuild")
 def api_rag_rebuild(p: Principal = Depends(get_principal)) -> dict[str, Any]:
     require_role(p, Role.ADMIN)
