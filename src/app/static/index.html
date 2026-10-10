@@ -511,7 +511,7 @@
     if (!s || !s.messages.length) {
       box.innerHTML = `
         <div class="empty">
-          <h3>有什么可以帮您？</h3>
+          <h3>你好，我是 Iris，有什么可以帮您？</h3>
           <p>询问制度与文档、查询业务表，或上传文件后继续提问。系统会自动选择知识库 / 表查询 / 智能体。</p>
           <div class="suggests">
             <div class="suggest" data-q="什么是RAG？请结合知识库说明。"><b>知识问答</b><span>什么是 RAG？请结合知识库说明。</span></div>
@@ -534,7 +534,7 @@
       row.className = "msg " + (m.role === "user" ? "user" : "bot") + (m.error ? " error" : "");
       const av = document.createElement("div");
       av.className = "avatar";
-      av.textContent = m.role === "user" ? "我" : "AI";
+      av.textContent = m.role === "user" ? "我" : "Iris";
       const bub = document.createElement("div");
       bub.className = "bubble";
 
