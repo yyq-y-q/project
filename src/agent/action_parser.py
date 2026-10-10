@@ -24,6 +24,10 @@ class ActionParser:
         act_name = match.group(1)
         args = match.group(2).strip()
         positional, kwargs = self._split_args_fixed(args)
+        # 兼容 JSON 风格调用：file_Write({"file_path": "...", "content": "..."})
+        if not kwargs and len(positional) == 1 and isinstance(positional[0], dict):
+            kwargs = positional[0]
+            positional = []
         return act_name, positional, kwargs
 
     def _split_args_fixed(self, args: str):

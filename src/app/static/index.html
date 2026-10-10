@@ -268,6 +268,14 @@
       padding: 4px 9px; color: #3d4763; font-size: 11.5px;
     }
     .attach-note { margin-top: 9px; font-size: 12px; color: var(--muted); }
+    .file-dl-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .file-dl-chip {
+      background: var(--primary-soft); color: #4338ca;
+      border: 1px solid var(--user-line); border-radius: 8px;
+      padding: 5px 10px; font-size: 12px; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 5px;
+    }
+    .file-dl-chip:hover { background: #e0e7ff; }
     .typing { display: inline-flex; gap: 5px; align-items: center; padding: 6px 0; }
     .typing span {
       width: 7px; height: 7px; border-radius: 50%; background: #a5aec6;
@@ -568,6 +576,30 @@
     $("sessIdLabel").textContent = cur ? "会话 " + cur.id : "";
   }
 
+  function attachFileChips(bub, text) {
+    const re = /data\/chat_uploads\/([^/\s>]+)\/([^\s]+)/g;
+    let mm;
+    const found = [];
+    while ((mm = re.exec(text || "")) !== null) {
+      const dir = mm[1];
+      let rel = mm[2].replace(/[`"'。，、；,.;:)\]}>]+$/, "");
+      const sess = dir.indexOf("_") >= 0 ? dir.split("_", 2)[1] : dir;
+      found.push({ sess: sess, rel: rel });
+    }
+    if (!found.length) return;
+    const wrap = document.createElement("div");
+    wrap.className = "file-dl-row";
+    for (const f of found) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "file-dl-chip";
+      chip.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>下载 ' + esc(f.rel.split("/").pop());
+      chip.onclick = () => downloadFile(f.sess, f.rel);
+      wrap.appendChild(chip);
+    }
+    bub.appendChild(wrap);
+  }
+
   function esc(s) {
     return String(s ?? "")
       .replace(/&/g, "&amp;")
@@ -613,6 +645,7 @@
         bub.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
       } else {
         bub.innerHTML = esc(m.content);
+        attachFileChips(bub, m.content);
         if (m.meta && (m.meta.mode || m.meta.reason || m.meta.timing != null)) {
           const wrap = document.createElement("div");
           wrap.className = "meta-row";
