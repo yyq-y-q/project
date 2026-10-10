@@ -255,11 +255,6 @@
     .meta-toggle:hover { color: var(--primary); background: var(--bg-soft); }
     .meta-detail { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     .meta-detail[hidden] { display: none; }
-    .tag {
-      font-size: 11px; border-radius: 999px; padding: 3px 9px;
-      background: #f1f3f8; color: #5b6478; border: 1px solid var(--line);
-    }
-    .tag.mode { background: var(--primary-soft); color: #4338ca; border-color: var(--user-line); font-weight: 600; }
     .sources { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 12px; color: var(--muted); }
     .sources .src-title { font-weight: 600; color: #3f475e; margin-bottom: 7px; }
     .src-list { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -818,15 +813,6 @@
         mk("新对话继续", icoNew, () => continueInNew(m));
         mk("文本打开", icoText, () => openText(m));
         meta.appendChild(acts);
-        const addTag = (txt, cls) => {
-          const sp = document.createElement("span");
-          sp.className = "tag" + (cls ? " " + cls : "");
-          sp.textContent = txt;
-          meta.appendChild(sp);
-        };
-        if (m.meta && m.meta.mode) addTag(m.meta.mode, "mode");
-        if (m.meta && m.meta.reason) addTag(m.meta.reason);
-        if (m.meta && m.meta.timing != null) addTag(Number(m.meta.timing).toFixed(2) + "s");
         btn.onclick = () => {
           meta.hidden = !meta.hidden;
           btn.textContent = meta.hidden ? "详情 ▾" : "详情 ▴";
