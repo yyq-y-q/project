@@ -16,13 +16,49 @@ class ActionParser:
     def __init__(self):
         pass
 
+    def _find_call_end(self, action: str) -> int:
+        """找到真正闭合 Action 调用的右括号下标（支持嵌套括号与字符串内括号）。
+
+        旧实现用非贪婪正则 \\(.*?\\) 匹配参数，参数内部一旦出现右括号
+        （如 run_Terminal_Command(echo 'print("hi")')）就会提前截断，
+        导致命令被腰斩、引号不闭合、shell 语法错误。这里改为扫描括号深度。
+        """
+        m = re.match(r"(\w+)\s*\(", action)
+        if not m:
+            return -1
+        start = m.end() - 1  # 指向 '('
+        depth = 0
+        in_string = False
+        string_char = None
+        i = start
+        while i < len(action):
+            ch = action[i]
+            if in_string:
+                if ch == string_char and action[i - 1] != "\\":
+                    in_string = False
+                    string_char = None
+                i += 1
+                continue
+            if ch in ("'", '"'):
+                in_string = True
+                string_char = ch
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    return i
+            i += 1
+        return -1
+
     def parse_action(self, action: str) -> Tuple[str, List, Dict]:
-        match = re.match(r"(\w+)\((.*?)\)", action, re.DOTALL)
-        if not match:
+        end = self._find_call_end(action)
+        if end < 0:
             raise ValueError("Invalid function call syntax")
 
-        act_name = match.group(1)
-        args = match.group(2).strip()
+        name_match = re.match(r"(\w+)\s*\(", action)
+        act_name = name_match.group(1)
+        args = action[name_match.end() : end].strip()
         positional, kwargs = self._split_args_fixed(args)
         # 兼容 JSON 风格调用：file_Write({"file_path": "...", "content": "..."})
         if not kwargs and len(positional) == 1 and isinstance(positional[0], dict):
