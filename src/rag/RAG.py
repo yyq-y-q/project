@@ -144,19 +144,24 @@ class RAGPipeline:
         # 1. 检索：两路召回都在进入融合前做 ACL 过滤。
         from app.acl import filter_chunks_by_acl
 
+        t_vec = time.time()
         vec_docs, _ = self.vector_index.retrieve(
             user_input, Config.RETRIEVAL_TOP_K, principal=principal
         )
+        t_bm25 = time.time()
         bm25_docs, _ = self.bm25_index.retrieve(
             user_input, Config.RETRIEVAL_TOP_K, principal=principal
         )
+        t_fuse = time.time()
         fused = reciprocal_rank_fusion([vec_docs, bm25_docs])
         # 融合后再过滤一次，防止第三方召回实现遗漏过滤。
         fused = filter_chunks_by_acl(fused, principal)
         candidates = fused[:Config.RETRIEVAL_TOP_K]
+        t_rerank = time.time()
 
         # 2. 只对授权候选重排，避免受限文本进入后续模型调用
         reranked = self.reranker.rerank(user_input, candidates, Config.RERANK_TOP_K)
+        t_llm = time.time()
 
         scoped_session = session_id or "default"
         if principal is not None:
@@ -193,6 +198,33 @@ class RAGPipeline:
             if chunk_id and chunk_id not in cite_ids:
                 cite_ids.append(str(chunk_id))
 
+        # 结构化检索 trace：每通道召回量、RRF/rerank 明细、各阶段耗时
+        trace = {
+            "query": user_input,
+            "vec_retrieved": len(vec_docs),
+            "bm25_retrieved": len(bm25_docs),
+            "fused_retrieved": len(candidates),
+            "rerank_count": len(reranked),
+            "channels_ms": {
+                "vector": round((t_bm25 - t_vec) * 1000, 1),
+                "bm25": round((t_fuse - t_bm25) * 1000, 1),
+                "rerank": round((t_llm - t_rerank) * 1000, 1),
+            },
+            "top_hits": [
+                {
+                    "chunk_id": item.get("chunk_id"),
+                    "source": str(
+                        (item.get("metadata") or {}).get("source")
+                        or (item.get("metadata") or {}).get("doc_id")
+                        or ""
+                    ),
+                    "rerank_score_norm": item.get("rerank_score_norm"),
+                }
+                for item in reranked
+            ],
+        }
+        logger.info("RAG trace: %s", json.dumps(trace, ensure_ascii=False, default=str))
+
         return {
             "answer": answer,
             "contexts": reranked,
@@ -205,6 +237,7 @@ class RAGPipeline:
             "query": user_input,
             "retrieval_count": len(candidates),
             "rerank_count": len(reranked),
+            "trace": trace,
         }
 
     def reset_memory(self):

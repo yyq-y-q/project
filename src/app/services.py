@@ -188,6 +188,7 @@ class KnowledgeService:
             "timing": result.get("timing"),
             "service_timing": time.time() - t0,
             "debug": result.get("debug"),
+            "trace": result.get("trace"),
             "acl_filtered": result.get("acl_filtered", False),
         }
 

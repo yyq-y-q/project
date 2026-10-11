@@ -42,6 +42,8 @@ class Config:
     # ---------- 重排模型 ----------
     RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
     RERANK_DEVICE = "cpu"
+    # 企业级多样性：同一来源文档最多保留的块数（0 = 不限）
+    RERANK_MAX_PER_SOURCE = 2
 
     # ---------- 向量数据库 ----------
     CHROMA_PERSIST_DIR = str(DATA_DIR / "chroma_db")
