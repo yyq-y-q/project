@@ -127,6 +127,187 @@ class RAGPipeline:
         logger.warning("索引加载失败，请先构建索引")
         return False
 
+    def update_index(
+        self,
+        root=None,
+        owner_key_id: str | None = None,
+    ) -> dict:
+        """
+        增量更新索引（企业级：变更检测 + 原子替换 + 失败回滚）。
+
+        - 无增量基线（manifest / chunks 缓存缺失）→ 全量重建并落基线；
+        - 有基线 → 只处理新增 / 修改 / 删除的文档：
+            向量按 doc_id 更新（upsert / delete）；
+            BM25 与两块磁盘产物（chunks.json / index_manifest.json）全部走
+            「临时文件 + os.replace」，任一步失败磁盘产物不落盘；
+        - 向量（Chroma）实时生效，失败时记录并提示 rag-rebuild 全量兜底。
+        """
+        import time as _time
+        from pathlib import Path
+
+        from .loader import load_doc_paths
+        from .manifest import (
+            detect_changes,
+            file_hash,
+            load_chunks,
+            load_manifest,
+            save_chunks,
+            save_manifest,
+        )
+
+        root_dir = Path(root) if root else Config.RAW_DOCS_DIR
+        t0 = _time.time()
+
+        manifest = load_manifest()
+        chunks_cache = load_chunks()
+
+        # 无基线 → 全量
+        if not manifest or not chunks_cache:
+            from .loader import load_docs_dir
+
+            docs, metas = load_docs_dir(root_dir)
+            if not docs:
+                raise RuntimeError(f"无 RAG 文档: {root_dir}")
+            if owner_key_id:
+                for meta in metas:
+                    meta.setdefault("owner_key_id", owner_key_id)
+                    meta.setdefault("visibility", "private")
+            else:
+                for meta in metas:
+                    meta.setdefault("visibility", "public")
+            ok = self.build_index(docs, metas, rebuild=True)
+            if not ok:
+                raise RuntimeError("全量重建失败")
+            # 落基线
+            new_chunks = split_documents(docs, metas)
+            new_manifest = self._manifest_from_chunks(new_chunks, root_dir)
+            save_chunks(new_chunks)
+            save_manifest(new_manifest)
+            return {
+                "mode": "full",
+                "added": len(docs),
+                "modified": 0,
+                "removed": 0,
+                "chunks": len(new_chunks),
+                "timing_s": round(_time.time() - t0, 2),
+            }
+
+        added, modified, removed = detect_changes(manifest, root_dir)
+        changed = added + modified
+        if not changed and not removed:
+            return {
+                "mode": "noop",
+                "added": 0,
+                "modified": 0,
+                "removed": 0,
+                "chunks": len(chunks_cache),
+                "timing_s": round(_time.time() - t0, 2),
+            }
+
+        logger.info(
+            "增量变更: added=%s modified=%s removed=%s",
+            len(added), len(modified), len(removed),
+        )
+
+        # 1) 重新加载变更文档 → 切块
+        new_chunks: list[dict] = []
+        if changed:
+            docs, metas = load_doc_paths(changed)
+            if not docs:
+                raise RuntimeError("变更文档加载失败（全部不可读）")
+            if owner_key_id:
+                for meta in metas:
+                    meta.setdefault("owner_key_id", owner_key_id)
+                    meta.setdefault("visibility", "private")
+            else:
+                for meta in metas:
+                    meta.setdefault("visibility", "public")
+            new_chunks = split_documents(docs, metas)
+
+        # 2) 更新内存缓存（chunks_cache）
+        changed_ids = {c["metadata"]["doc_id"] for c in new_chunks}
+        kept = [
+            c for c in chunks_cache
+            if c.get("metadata", {}).get("doc_id") not in changed_ids
+            and c.get("metadata", {}).get("doc_id") not in set(removed)
+        ]
+        merged = kept + new_chunks
+
+        # 3) 向量索引：先清变更文档的旧块（chunk_id 全局编号会随内容变化，避免残留），
+        #    再 upsert 新块；删除文档按 doc_id 移除
+        try:
+            for chunk in new_chunks:
+                self.vector_index.delete_by_doc(chunk["metadata"]["doc_id"])
+            if new_chunks:
+                self.vector_index.add(new_chunks)
+            for doc_id in removed:
+                self.vector_index.delete_by_doc(doc_id)
+        except Exception as e:
+            logger.exception("向量增量更新失败，磁盘产物未落盘（可 rag-rebuild 全量兜底）: %s", e)
+            raise
+
+        # 4) BM25 用合并后的全量语料重建（原子写）
+        self.bm25_index.build(merged)
+
+        # 5) 磁盘基线原子落盘
+        new_manifest = dict(manifest)
+        for doc_id in removed:
+            new_manifest.pop(doc_id, None)
+        for chunk in new_chunks:
+            meta = chunk.get("metadata") or {}
+            doc_id = meta.get("doc_id")
+            if not doc_id:
+                continue
+            entry = new_manifest.get(doc_id) or {}
+            entry["chunk_count"] = sum(
+                1 for c in merged if c.get("metadata", {}).get("doc_id") == doc_id
+            )
+            entry["source"] = meta.get("source")
+            entry["path"] = meta.get("source_path", "")
+            entry["file_type"] = meta.get("file_type", "")
+            try:
+                entry["hash"] = file_hash(Path(meta.get("source_path", "")))
+            except Exception:
+                entry["hash"] = ""
+            entry["updated_at"] = int(_time.time())
+            new_manifest[doc_id] = entry
+
+        save_chunks(merged)
+        save_manifest(new_manifest)
+
+        self._is_built = True
+        return {
+            "mode": "incremental",
+            "added": len(added),
+            "modified": len(modified),
+            "removed": len(removed),
+            "chunks": len(merged),
+            "timing_s": round(_time.time() - t0, 2),
+        }
+
+    def _manifest_from_chunks(self, chunks: list[dict], root_dir) -> dict:
+        from pathlib import Path
+
+        from .manifest import file_hash
+
+        manifest: dict = {}
+        for chunk in chunks:
+            meta = chunk.get("metadata") or {}
+            doc_id = meta.get("doc_id")
+            if not doc_id:
+                continue
+            entry = manifest.get(doc_id) or {}
+            entry["chunk_count"] = entry.get("chunk_count", 0) + 1
+            entry["source"] = meta.get("source")
+            entry["path"] = meta.get("source_path", "")
+            entry["file_type"] = meta.get("file_type", "")
+            try:
+                entry["hash"] = file_hash(Path(meta.get("source_path", "")))
+            except Exception:
+                entry["hash"] = ""
+            manifest[doc_id] = entry
+        return manifest
+
 
     
     def query(

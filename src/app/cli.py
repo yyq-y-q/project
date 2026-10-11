@@ -65,6 +65,21 @@ def rag_rebuild():
         _fail(e)
 
 
+@main.command("rag-update")
+def rag_update():
+    """增量更新 RAG 索引：检测 data/raw 变更，只重建变更文档（服务运行期间勿用）。"""
+    from app.logging_setup import setup_logging
+    from app.services import KnowledgeService
+
+    setup_logging()
+    try:
+        out = KnowledgeService().update()
+        _dump(out)
+        sys.exit(0)
+    except Exception as e:
+        _fail(e)
+
+
 @main.command("rag-smoke")
 @click.option("--load-only", is_flag=True)
 def rag_smoke(load_only: bool):

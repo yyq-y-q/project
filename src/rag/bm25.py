@@ -42,19 +42,9 @@ class BM25Index:
     }
         # 路径已是绝对 Path；父目录 data/ 可能尚未创建
         Config.BM25_PATH.parent.mkdir(parents=True, exist_ok=True)
-        #保存chunk数据
-        with open(Config.BM25_PATH, "w", encoding="utf-8") as f:
-            # indent=2：给人看；ensure_ascii=False：中文不转 \uXXXX
-            # 机器读 json.load 不在乎换不换行，这只影响可读性
-            json.dump(data, f, ensure_ascii=False, indent=2)
-            #保存对象实例
-        # with open(
-        #     Config.BM25_INDEX_PATH, 
-        #     'wb') as f:
-        #         pickle.dump(
-        #             self.bm25,
-        #             f
-        #         )
+        # 原子写：临时文件 + os.replace，避免重建中途崩溃留下半成品索引
+        from .manifest import _atomic_write_json
+        _atomic_write_json(Config.BM25_PATH, data)
         logger.info(f"BM25 索引已保存，文档数: {len(self.corpus)}")
 
     def clear(self) -> None:

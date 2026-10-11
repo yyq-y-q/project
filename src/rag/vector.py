@@ -37,6 +37,14 @@ class VectorIndex:
         self.collection = self._open_collection()
         logger.info("Chroma collection 已重置，count=%s", self.collection.count())
 
+    def delete_by_doc(self, doc_id: str) -> None:
+        """删除某文档的全部块（增量索引移除已删除/被替换文档）。"""
+        try:
+            self.collection.delete(where={"doc_id": doc_id})
+            logger.info("已删除文档块: %s", doc_id)
+        except Exception as e:
+            logger.warning("删除文档块失败 %s: %s", doc_id, e)
+
     def add(self, chunks: list[dict]) -> None:
         if not chunks:
             return

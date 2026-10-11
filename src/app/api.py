@@ -713,6 +713,14 @@ def api_rag_rebuild(p: Principal = Depends(get_principal)) -> dict[str, Any]:
     return kb.rebuild(owner_key_id=p.key_id if p.source in {"oidc", "database"} else None)
 
 
+@app.post("/v1/rag/update")
+def api_rag_update(p: Principal = Depends(get_principal)) -> dict[str, Any]:
+    """增量更新 RAG 索引：只重建 data/raw 中新增/修改/删除的文档。"""
+    require_role(p, Role.ADMIN)
+    logger.info("rag incremental update by %s", p.key_id)
+    return kb.update(owner_key_id=p.key_id if p.source in {"oidc", "database"} else None)
+
+
 @app.post("/v1/rag/ask")
 def api_rag_ask(body: AskBody, p: Principal = Depends(get_principal)) -> dict[str, Any]:
     require_permission(p, "knowledge.read")

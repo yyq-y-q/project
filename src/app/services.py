@@ -105,6 +105,17 @@ class KnowledgeService:
                     details={"raw_dir": str(root), "documents": len(docs)},
                 )
             set_rag_singleton(pipe)
+            # 落增量基线：全量重建后立即生成 manifest + chunks 缓存，
+            # 后续 rag-update / /v1/rag/update 才能做增量
+            try:
+                from rag.manifest import save_chunks, save_manifest
+                from rag.splitter import split_documents
+
+                base_chunks = split_documents(docs, metas)
+                save_chunks(base_chunks)
+                save_manifest(pipe._manifest_from_chunks(base_chunks, root))
+            except Exception as e:
+                logger.warning("落增量基线失败（可稍后 rag-update 兜底）: %s", e)
             return {
                 "ok": True,
                 "documents": len(docs),
@@ -119,6 +130,35 @@ class KnowledgeService:
                 e,
                 stage="rag.rebuild",
                 message="RAG 索引构建异常",
+                details={"raw_dir": str(root)},
+                as_error=IndexBuildError,
+            ) from e
+
+    def update(self, raw_dir: str | Path | None = None, owner_key_id: str | None = None) -> dict[str, Any]:
+        """
+        增量更新索引：检测 data/raw 变更，只重建变更文档。
+        无基线时自动全量重建并落基线。复用进程内单例（服务运行时安全）。
+        """
+        from rag.config import Config
+
+        root = Path(raw_dir) if raw_dir else Config.RAW_DOCS_DIR
+        try:
+            pipe = get_rag()
+            out = pipe.update_index(root=root, owner_key_id=owner_key_id)
+            set_rag_singleton(pipe)
+            return {
+                "ok": True,
+                **out,
+                "chroma": pipe.vector_index.collection.count(),
+            }
+        except AppError:
+            raise
+        except Exception as e:
+            logger.exception("rag incremental update failed")
+            raise wrap_unexpected(
+                e,
+                stage="rag.update",
+                message="RAG 索引增量更新异常",
                 details={"raw_dir": str(root)},
                 as_error=IndexBuildError,
             ) from e
