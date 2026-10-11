@@ -278,14 +278,6 @@
     }
     .msg.bot .bubble { border-bottom-left-radius: 6px; }
     .msg.error .bubble { border-color: var(--error-line); background: var(--error-bg); color: var(--error-text); }
-    .meta-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
-    .meta-toggle {
-      border: none; background: none; color: var(--muted);
-      font-size: 11px; padding: 2px 6px; border-radius: 6px; cursor: pointer;
-    }
-    .meta-toggle:hover { color: var(--primary); background: var(--bg-soft); }
-    .meta-detail { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-    .meta-detail[hidden] { display: none; }
     .sources { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 12px; color: var(--muted); }
     .sources .src-title { font-weight: 600; color: #3f475e; margin-bottom: 7px; }
     .src-list { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -303,22 +295,27 @@
     }
     .file-dl-chip:hover { background: #e0e7ff; }
 
-    /* ===== 消息操作行 ===== */
-    .msg-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; align-items: center; }
-    .meta-detail .msg-actions { flex: 1 1 100%; margin-top: 0; margin-bottom: 4px; }
+    /* ===== 消息底部：时间 + hover 操作 ===== */
+    .msg-foot {
+      display: flex; align-items: center; gap: 4px;
+      margin-top: 6px; min-height: 24px;
+      font-size: 11px; color: var(--muted);
+    }
+    .msg.user .msg-foot { flex-direction: row-reverse; }
+    .msg-foot .time { white-space: nowrap; }
+    .msg-acts { display: flex; gap: 2px; opacity: 0; transition: opacity .15s ease; }
+    .msg:hover .msg-acts, .msg:focus-within .msg-acts { opacity: 1; }
+    @media (hover: none) { .msg-acts { opacity: .75; } }
     .msg-act {
-      display: inline-flex; align-items: center; gap: 4px;
-      border: 1px solid var(--line); background: transparent;
-      color: var(--muted); font-size: 11px; padding: 3px 9px; border-radius: 999px;
-      cursor: pointer; transition: background .12s, color .12s, border-color .12s;
-      font-family: inherit;
+      width: 30px; height: 30px; padding: 0; flex: none;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: none; border-radius: 9px; background: transparent;
+      color: var(--muted); cursor: pointer;
+      transition: background .12s ease, color .12s ease;
     }
-    .msg-act:hover { background: #eef2ff; color: #3730a3; border-color: #c7d2fe; }
-    .msg-act svg { width: 12px; height: 12px; }
-    .msg.user .msg-act:hover { background: #e0f2fe; color: #075985; border-color: #bae6fd; }
-    @media (max-width: 880px) {
-      .msg-act { min-height: 44px; padding: 8px 12px; font-size: 12px; }
-    }
+    .msg-act:hover { background: #eef0f6; color: #3f475e; }
+    .msg.user .msg-act:hover { background: #e0f2fe; color: #075985; }
+    .msg-act svg { width: 15px; height: 15px; }
 
     /* ===== 引用条 ===== */
     .quote-bar {
@@ -771,6 +768,19 @@
 
   function roleName(r) { return r === "user" ? "我" : "Iris"; }
 
+  function fmtMsgTime(ts) {
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return "";
+    const now = new Date();
+    const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startYest = new Date(startToday.getTime() - 86400000);
+    if (d >= startToday) return "今天 " + hm;
+    if (d >= startYest) return "昨天 " + hm;
+    if (d.getFullYear() === now.getFullYear()) return d.getMonth() + 1 + "/" + d.getDate() + " " + hm;
+    return d.getFullYear() + "/" + (d.getMonth() + 1) + "/" + d.getDate() + " " + hm;
+  }
+
   function fallbackCopy(text, done) {
     const ta = document.createElement("textarea");
     ta.value = text;
@@ -889,42 +899,6 @@
       } else {
         bub.innerHTML = esc(m.content);
         attachFileChips(bub, m.content);
-        // 详情折叠：消息操作 + 元信息标签（默认隐藏）
-        const wrap = document.createElement("div");
-        wrap.className = "meta-row";
-        const btn = document.createElement("button");
-        btn.type = "button";
-        btn.className = "meta-toggle";
-        btn.textContent = "详情 ▾";
-        const meta = document.createElement("div");
-        meta.className = "meta-detail";
-        meta.hidden = true;
-        const acts = document.createElement("div");
-        acts.className = "msg-actions";
-        const mk = (label, icon, fn) => {
-          const b = document.createElement("button");
-          b.type = "button";
-          b.className = "msg-act";
-          b.innerHTML = icon + label;
-          b.onclick = (ev) => { ev.stopPropagation(); fn(b); };
-          acts.appendChild(b);
-        };
-        const icoCopy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-        const icoQuote = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>';
-        const icoNew = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>';
-        const icoText = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 10h10M4 14h16M4 18h10"/></svg>';
-        mk("复制", icoCopy, (b) => copyMsg(m, b));
-        mk("引用", icoQuote, () => quoteMsg(m));
-        mk("新对话继续", icoNew, () => continueInNew(m));
-        mk("文本打开", icoText, () => openText(m));
-        meta.appendChild(acts);
-        btn.onclick = () => {
-          meta.hidden = !meta.hidden;
-          btn.textContent = meta.hidden ? "详情 ▾" : "详情 ▴";
-        };
-        wrap.appendChild(btn);
-        wrap.appendChild(meta);
-        bub.appendChild(wrap);
         const sources = (m.meta && m.meta.sources) || [];
         const cites = (m.meta && m.meta.cite_ids) || [];
         if (sources.length || cites.length) {
@@ -962,6 +936,38 @@
 
       row.appendChild(av);
       row.appendChild(bub);
+      if (!m.pending) {
+        // 消息底部：常显时间 + hover 浮现的操作按钮
+        const foot = document.createElement("div");
+        foot.className = "msg-foot";
+        if (m.ts) {
+          const t = document.createElement("span");
+          t.className = "time";
+          t.textContent = fmtMsgTime(m.ts);
+          foot.appendChild(t);
+        }
+        const acts = document.createElement("div");
+        acts.className = "msg-acts";
+        const mk = (title, icon, fn) => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.className = "msg-act";
+          b.title = title;
+          b.innerHTML = icon;
+          b.onclick = (ev) => { ev.stopPropagation(); fn(b); };
+          acts.appendChild(b);
+        };
+        const icoCopy = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+        const icoQuote = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>';
+        const icoNew = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>';
+        const icoText = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 10h10M4 14h16M4 18h10"/></svg>';
+        mk("复制", icoCopy, (b) => copyMsg(m, b));
+        mk("引用", icoQuote, () => quoteMsg(m));
+        mk("新对话继续", icoNew, () => continueInNew(m));
+        mk("文本打开", icoText, () => openText(m));
+        foot.appendChild(acts);
+        row.appendChild(foot);
+      }
       box.appendChild(row);
     }
     const sc = $("chatScroll");
@@ -1039,9 +1045,10 @@
       role: "user",
       content: text || (quoted ? "（引用" + roleName(quoted.role) + "消息）" : "（仅上传附件）"),
       meta: state.files.length ? { attachments: state.files.map((f) => ({ filename: f.name })) } : null,
+      ts: Date.now(),
     };
     s.messages.push(userMsg);
-    const pending = { role: "assistant", content: "", pending: true };
+    const pending = { role: "assistant", content: "", pending: true, ts: Date.now() };
     s.messages.push(pending);
     s.updatedAt = Date.now();
     $("input").value = "";
@@ -1084,6 +1091,7 @@
           error: true,
           content: (err.code ? err.code + " · " : "") + (err.message || raw || "请求失败"),
           meta: err.stage ? { reason: err.stage } : null,
+          ts: Date.now(),
         });
       } else {
         const res = data.result || {};
@@ -1099,6 +1107,7 @@
             sql: res.sql,
             attachments: data.attachments || [],
           },
+          ts: Date.now(),
         });
       }
     } catch (e) {
@@ -1107,6 +1116,7 @@
         role: "assistant",
         error: true,
         content: String(e.message || e),
+        ts: Date.now(),
       });
     } finally {
       s.updatedAt = Date.now();
