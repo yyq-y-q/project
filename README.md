@@ -33,7 +33,7 @@
 | Web 框架 | FastAPI + uvicorn | `/v1/*` REST API；`KB_HOST`/`KB_PORT`/`KB_WORKERS` 可配 |
 | 数据存储 | SQLite | `query.db` 业务表 / `logger.db` 审计 / `governance.db` 动态密钥与治理 |
 | 命令行 | `mykb` / `myagent` | 构建/增量索引、表 ingest、冒烟、混合问答、Agent、serve、部署自检 |
-| 前端 | 单文件静态 HTML（原生 JS，无构建） | `src/app/static/index.html`，WebSocket 直连 `/v1/*` |
+| 前端 | 单文件静态 HTML（原生 JS）+ Three.js r128 暗黑入场页（自托管） | `src/app/static/index.html`，WebSocket 直连 `/v1/*` |
 | 部署 | nginx + systemd / Docker compose | HTTPS 反代、HTTP→HTTPS 跳转、IP 限流、守护进程 |
 | TLS | certbot（Let's Encrypt）/ 自签脚本 | `deploy/certs/`；公网域名用正式证书，内网用自签 |
 | 测试 | pytest | `tests/`；不依赖真实模型与网络，可离线运行 |
@@ -210,6 +210,12 @@ uv run mykb chat -m "SELECT id, name FROM employees LIMIT 3"
 uv run mykb chat -m "帮我看这个脚本" --file path/to/a.py
 
 # API + 控制台 UI
+
+## WebUI 入场页（Iris）
+
+- 首次访问展示暗黑权谋入场仪式：参考图（蒙眼金泪女王）+ Three.js 3D 场景（金色尘埃粒子、白色国王棋子、鼠标景深视差、呼吸光环）→ 点击 ENTER 棋子加速飞向镜头 → 蛛网裂屏转场（放射裂纹 + 环状蛛网 + 中心白光）→ 淡出进入主界面；之后访问直接进入主界面（`localStorage.iris_entry_seen_v1`）。
+- 资源自托管：`static/assets/iris_enter.jpg`（参考图）、`static/assets/three.min.js`（three r128 UMD，加载失败自动降级纯静态入场，并保留 CDN 兜底）；字体走飞书镜像 `miaoda.feishu.cn`，带完整系统字体回退。
+- 鲁棒性：动画循环被浏览器节流/暂停时，转场通过多重定时器兜底在 8s 内强制完成，不会卡死。
 uv run mykb serve
 # 浏览器 http://127.0.0.1:8000/  统一对话框；文档 /docs
 
