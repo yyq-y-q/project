@@ -6,11 +6,12 @@
 
 | 链路 | 说明 |
 |------|------|
-| RAG | txt/md/docx/文字 PDF → 切块 → 向量+BM25 → RRF → Rerank → 带引用回答 |
+| RAG | txt/md/docx/文字 PDF → **结构感知切块** → 向量+BM25 → RRF → **源去重+归一化 Rerank** → 带引用回答（含**结构化检索 trace**） |
 | SQLite | xlsx/csv → ingest → `query.db` 只读查询（校验+LIMIT+审计） |
 | Hybrid | `HybridService`：一次调用内 SQL + RAG + 汇总（确定路径，非 Agent 多步） |
 | **Chat** | **统一对话框**：`POST /v1/chat` 自动分流 sql/rag/hybrid/agent/chat；支持上传与粘贴代码块 |
 | Agent | 沙箱内文件/终端 + `rag_Query` + `sqlite_Query`，模型自选工具 |
+| **增量索引** | **`rag-update` 增量更新**：按文件指纹检测新增/修改/删除，只重建变更文档，亚秒级完成；全量 rebuild 自动落基线（manifest + chunks 缓存） |
 | API | FastAPI：`/v1/rag/*` `/v1/sqlite/*` `/v1/hybrid/ask` `/v1/agent/run` + 简易 UI |
 | 错误 | `app.errors.AppError` 统一 `code/message/details`，API 映射 HTTP 状态 |
 | 会话 | `session_id` 按调用者隔离多轮记忆，上传工作区与记忆互不可见，支持并发多用户会话文件 |
@@ -23,12 +24,15 @@
 | 依赖编排 | `uv` + `uv.lock` | 虚拟环境 / 依赖安装 / 可复现构建 |
 | LLM | DeepSeek Chat API（`DEEP_SEEK_KEY`） | 生成、摘要、Agent 推理 |
 | 嵌入模型 | BAAI/bge-m3（SentenceTransformers） | 文档切块向量化；服务器经 `HF_ENDPOINT=https://hf-mirror.com` 拉取 |
-| 向量库 | Chroma（`data/chroma_db`） | 稠密检索 |
-| 关键词索引 | BM25（`data/bm25_index.json`） | 稀疏检索 |
+| 重排模型 | BAAI/bge-reranker-v2-m3（交叉编码器） | 精排：源去重（每文档最多 `RERANK_MAX_PER_SOURCE` 块）+ 分数归一化 |
+| 向量库 | Chroma（`data/chroma_db`） | 稠密检索；增量更新支持按文档删除旧块 |
+| 关键词索引 | BM25（`data/bm25_index.json`） | 稀疏检索；原子写重建 |
 | 检索融合 | RRF + Rerank | 两路召回融合排序后进入 LLM |
+| 切块 | 结构感知（`rag/splitter.py`） | Markdown 标题层级切 section + 标题链注入 + 段落贪心合并 + 超长递归兜底 |
+| 增量基线 | `index_manifest.json` + `chunks.json`（`rag/manifest.py`） | SHA-256 指纹变更检测；临时文件 + `os.replace` 原子写；失败不落盘 |
 | Web 框架 | FastAPI + uvicorn | `/v1/*` REST API；`KB_HOST`/`KB_PORT`/`KB_WORKERS` 可配 |
 | 数据存储 | SQLite | `query.db` 业务表 / `logger.db` 审计 / `governance.db` 动态密钥与治理 |
-| 命令行 | `mykb` / `myagent` | 构建索引、表 ingest、冒烟、混合问答、Agent、serve、部署自检 |
+| 命令行 | `mykb` / `myagent` | 构建/增量索引、表 ingest、冒烟、混合问答、Agent、serve、部署自检 |
 | 前端 | 单文件静态 HTML（原生 JS，无构建） | `src/app/static/index.html`，WebSocket 直连 `/v1/*` |
 | 部署 | nginx + systemd / Docker compose | HTTPS 反代、HTTP→HTTPS 跳转、IP 限流、守护进程 |
 | TLS | certbot（Let's Encrypt）/ 自签脚本 | `deploy/certs/`；公网域名用正式证书，内网用自签 |
@@ -40,6 +44,8 @@
 data/raw/          原件（叙述+表混放，按后缀分流）
 data/chroma_db/    向量索引
 data/bm25_index.json
+data/index_manifest.json  增量基线：doc_id → 路径/SHA-256 指纹/chunk 数
+data/chunks.json          增量基线：全量 chunk 缓存（BM25 语料源）
 data/sqlite/       query.db / logger.db
 data/sessions/     各 session 对话记忆
 data/chat_uploads/ 对话上传/粘贴拆分的附件工作区
@@ -48,8 +54,8 @@ data/logs/app.log  滚动日志
 data/backups/      备份产物
 data/agent_sandbox/ Agent 默认工作目录
 
-tests/              pytest 自动化测试（BM25 / RRF / LLM / 模型管理）
-src/rag/           检索生成
+tests/              pytest 自动化测试（BM25 / RRF / LLM / 模型管理 / 切块 / 增量基线 / 重排）
+src/rag/           检索生成（splitter · manifest · reranker · RAG · vector · bm25）
 src/sqlite_tool/   表 ingest + 只读网关
 src/agent/         ReAct
 src/app/           API · Service · Hybrid · Locks · Auth · Settings · CLI · UI
@@ -148,13 +154,13 @@ uv sync --group dev
 - **知识问答**指 `/v1/rag/ask`、`/v1/sqlite/query`、`/v1/hybrid/ask` 与 `/v1/chat` 的非 Agent 分流；所有角色均可使用
 - **附件与下载**：`/v1/chat` 的 `files` 上传、`/v1/session/files` 列表与 `/v1/session/files/download` 下载都只要求 `knowledge.read`，因此 **user / readonly / 各变更角色都能上传附件并下载 Iris 生成的文件**；但 readonly 无法让 Iris 去解析/生成文件（那需要 Agent）
 - **Agent 是 user 与 readonly 的分水岭**：`/v1/agent/run`、`/v1/chat` 的 `force_mode=agent` 仅 admin / user 可用；readonly 发起会收到 403 并提示改用知识库问法
-- **重建索引 / 导入表数据**仅 admin：WebUI 侧边栏按钮对所有登录角色可见，但非 admin 点击会收到 403（后端以 `X-API-Key` 身份判定，不看界面）
+- **重建索引 / 增量更新 / 导入表数据**仅 admin：WebUI 侧边栏按钮对所有登录角色可见，但非 admin 点击会收到 403（后端以 `X-API-Key` 身份判定，不看界面）；增量更新也可走 CLI `mykb rag-update` 或 `POST /v1/rag/update`
 - 变更角色（change_requester / approver / executor）只服务于「提交→审批→执行→回滚」工作流，日常问答能力与 readonly 相当（均无 Agent）
 - 鉴权链：`X-API-Key` → 静态或动态 key → `Role` → 权限集（`auth.py::DEFAULT_PERMISSIONS`）→ 端点 `require_permission(...)`
 
 ## 自动化测试
 
-测试由 pytest 管理，统一放在 `tests/`，按被测模块拆分文件。当前测试覆盖 BM25 索引的构建/加载/清理与检索、RRF 排名融合、LLM 响应和错误边界、模型实例惰性复用。测试使用临时目录及替身对象，不请求真实模型服务，也不下载推理模型。
+测试由 pytest 管理，统一放在 `tests/`，按被测模块拆分文件。当前测试覆盖：BM25 索引的构建/加载/清理与检索、RRF 排名融合、LLM 响应和错误边界、模型实例惰性复用、**结构感知切块**（标题层级/段落合并/超长兜底/chunk_id 契约）、**增量基线**（原子写/指纹/新增-修改-删除-noop 变更检测）、**重排源去重与分数归一化**。测试使用临时目录及替身对象，不请求真实模型服务，也不下载推理模型。
 
 ```bash
 # 运行全部测试
@@ -186,6 +192,9 @@ uv run mykb rag-rebuild
 uv run mykb sqlite-ingest
 uv run mykb rag-smoke
 uv run mykb sqlite-smoke
+
+# 增量更新索引（只重建变更文档，亚秒级；新增/修改/删除自动检测）
+uv run mykb rag-update
 
 # 部署前自检（鉴权/密钥/目录，不启服务）
 uv run mykb check-deploy
@@ -223,7 +232,7 @@ uv run mykb agent -t "研发部有谁？什么是RAG？"
 
 | 输入 | 形态 | 去向 | 入口 |
 |------|------|------|------|
-| 叙述文档 | txt / md / docx / 文字层 PDF | RAG 索引（切块 → 向量 + BM25） | 放入 `data/raw/` 后 `mykb rag-rebuild` |
+| 叙述文档 | txt / md / docx / 文字层 PDF | RAG 索引（**结构感知切块** → 向量 + BM25） | 放入 `data/raw/` 后 `mykb rag-rebuild`（全量）或 `mykb rag-update`（增量） |
 | 业务表 | xlsx / csv | SQLite `query.db`（校验 + LIMIT + 审计） | 放入 `data/raw/` 后 `mykb sqlite-ingest` |
 | 扫描件 PDF | 无文字层 | 跳过（待 OCR 支持） | — |
 | 对话问题 | 文本消息 | 自动分流 sql / rag / hybrid / agent / chat | `POST /v1/chat` 或 WebUI 输入框 |
@@ -233,7 +242,7 @@ uv run mykb agent -t "研发部有谁？什么是RAG？"
 
 | 输出 | 去向 | 说明 |
 |------|------|------|
-| 问答回答 | 请求响应 / WebUI | 带 `sources`（引用来源）与 `cite_ids`；hybrid 含表结果 + 概念解释 |
+| 问答回答 | 请求响应 / WebUI | 带 `sources`（引用来源）、`cite_ids` 与 `trace`（各通道召回数、阶段耗时、`rerank_score_norm`）；hybrid 含表结果 + 概念解释 |
 | Iris 生成的文件 | 会话工作区 `data/chat_uploads/<session>/` | Agent 产物（如填好的 xlsx / 整理的 docx），经 `/v1/session/files` 列表、`/v1/session/files/download` 下载 |
 | SQL 查询结果 | 请求响应 | 只读网关，自动 LIMIT，逐条审计 |
 | 审计与运行日志 | `data/sqlite/logger.db`、`data/logs/app.log` | SQL 执行、变更、鉴权、错误留痕 |
@@ -243,17 +252,17 @@ uv run mykb agent -t "研发部有谁？什么是RAG？"
 
 ```text
 data/raw 原件
-  ├─ 文档 → rag-rebuild → Chroma 向量 + BM25 索引
+  ├─ 文档 → rag-rebuild（全量）/ rag-update（增量）→ Chroma 向量 + BM25 索引（manifest+chunks 基线）
   └─ 表格 → sqlite-ingest → query.db
                 │
 提问（/v1/chat）→ 自动分流
-  ├─ 知识问题 → 两路召回 → RRF → Rerank → LLM → 带引用回答
+  ├─ 知识问题 → 两路召回 → RRF → 源去重 Rerank（归一化）→ LLM → 带引用回答（附 trace）
   ├─ 表问题   → SQL 校验/ACL → 查询 → LLM 组织 → 表结果回答
   ├─ 混合问题 → SQL + RAG 一次调用汇总
   ├─ 代码/文件任务 → Agent 沙箱（读附件 → 工具调用 → 生成文件到工作区）
   └─ 寒暄     → 直接对话
                 │
-回答（含 sources/cite_ids）→ WebUI 气泡；生成文件 → 工作区可下载
+回答（含 sources/cite_ids/trace）→ WebUI 气泡；生成文件 → 工作区可下载
 ```
 
 ## API 摘要
@@ -264,6 +273,7 @@ data/raw 原件
 | GET | `/v1/ready` | 公开（就绪；生产缺配置 → 503） |
 | GET | `/v1/metrics` | 任意有效角色 |
 | POST | `/v1/rag/rebuild` | admin |
+| POST | `/v1/rag/update` | admin（增量更新，不重建全量） |
 | POST | `/v1/rag/ask` | admin/user/readonly |
 | POST | `/v1/sqlite/ingest` | admin |
 | POST | `/v1/sqlite/query` | admin/user/readonly |
@@ -340,6 +350,10 @@ curl -s -X POST http://127.0.0.1:8000/v1/chat/json \
 # 管理操作（仅 admin）
 curl -s -X POST http://127.0.0.1:8000/v1/sqlite/ingest \
   -H "X-API-Key: $KB_API_KEY_ADMIN"
+
+# 增量更新 RAG 索引（仅 admin；自动检测新增/修改/删除）
+curl -s -X POST http://127.0.0.1:8000/v1/rag/update \
+  -H "X-API-Key: $KB_API_KEY_ADMIN"
 ```
 
 ### 错误码
@@ -351,7 +365,7 @@ curl -s -X POST http://127.0.0.1:8000/v1/sqlite/ingest \
 | 429 | `rate_limited` | 触发限流（带 `Retry-After`） |
 | 422 | `validation_error` | 参数校验失败 |
 | 503 | `rag_index_not_ready` / `db_not_ready` | 索引或表库未就绪 |
-| 500 | `rag_index_build_failed` / `ingest_error` | 重建 / 摄取失败 |
+| 500 | `rag_index_build_failed` / `ingest_error` | 重建 / 增量更新 / 摄取失败 |
 | 500 | `llm_error` | 大模型调用失败（key 缺失 / 上游错误） |
 | 400 | `sql_validation_error` / `sql_query_error` | SQL 校验或执行失败 |
 | 500 | `agent_error` / `hybrid_error` / `rag_error` | 对应链路内部错误 |
@@ -508,7 +522,7 @@ sudo systemctl restart private-kb   # 或 docker compose up -d --build
 | 请求返回 401 | `X-API-Key` 缺失 / 错误 / 过期 → 检查 key 与 `_EXPIRES_AT` |
 | 返回 403 `permission_denied` | 角色权限不足，或 SQL 引用了无权的表 → 换高角色 key，或调整 `KB_SQL_TABLE_ACL_JSON` |
 | 返回 429 | 触发限流 → 降低调用频率，或调大 `KB_RATE_LIMIT_RPM/BURST` |
-| `rag_index_not_ready` | 索引未构建 → `uv run mykb rag-rebuild`；确认 `data/raw/` 有文档 |
+| `rag_index_not_ready` | 索引未构建 → `uv run mykb rag-rebuild`（或已有基线时 `rag-update`）；确认 `data/raw/` 有文档 |
 | `db_not_ready` | 表库缺失 → `uv run mykb sqlite-ingest` |
 | `llm_error` | `DEEP_SEEK_KEY` 缺失或上游超时 → 检查密钥与网络，看日志定位 stage |
 | 服务起不来（`ImportError`） | 依赖未装或代码不完整 → `uv sync --frozen`，确认是从仓库完整拉取 |
@@ -522,6 +536,8 @@ sudo systemctl restart private-kb   # 或 docker compose up -d --build
 - Phase4 Agent 沙箱/路由/session ✅
 - Phase5 API/Service/CLI/UI/日志 ✅
 - Phase6 并发锁 + 部署包（Docker/nginx/systemd/备份/生产鉴权）✅
-- 更后：OCR、增量索引、JWT/OIDC、完整 RBAC、前端工程化
+- Phase7 企业级检索：结构感知切块 + 源去重重排 + 结构化 trace ✅
+- Phase8 增量索引：指纹变更检测 + 原子写基线（manifest/chunks）✅
+- 更后：OCR、评测集、PII 过滤、JWT/OIDC、完整 RBAC、前端工程化
 
 日常：`mykb check-deploy` / `mykb smoke` / `mykb serve`。
