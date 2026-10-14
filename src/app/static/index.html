@@ -438,6 +438,71 @@
   .quote-bar{background:rgba(201,162,39,.08);border-color:#4a3d1a;}
   .ctx-chip{background:#1b212c;}
   input,textarea{background:#151922;color:var(--text);}
+  /* ===== 白金暖黑主题（不冷黑，米白金点缀） ===== */
+  :root{
+    --bg:#16130f; --bg-soft:#1c1814; --sidebar:#100e0b;
+    --card:#1e1a15; --line:#2c251c; --text:#ece4d2; --muted:#a89e88;
+    --primary:#c9a227; --primary-hover:#e0bc45; --primary-soft:rgba(201,162,39,.13);
+    --user-bg:rgba(201,162,39,.14); --user-line:rgba(201,162,39,.35);
+    --gold:#d4af37; --cream:#f0e8d2;
+  }
+  body{background:radial-gradient(1200px 800px at 70% -10%,#1f1a13 0%,#16130f 55%,#120f0c 100%);color:var(--text);}
+  /* 侧栏 */
+  .sidebar{background:linear-gradient(180deg,#100e0b 0%,#0d0b09 100%);border-right:1px solid #221c14;}
+  .brand h1{color:var(--cream);letter-spacing:.02em;}
+  .brand p{color:var(--muted);}
+  .brand-mark{background:linear-gradient(135deg,#c9a227,#8a6d1a);box-shadow:0 4px 14px rgba(201,162,39,.25);}
+  .btn-primary{background:linear-gradient(135deg,#c9a227,#9a7a1f);color:#1a1408;font-weight:600;border:none;box-shadow:0 4px 14px rgba(201,162,39,.25);}
+  .btn-primary:hover{background:linear-gradient(135deg,#e0bc45,#b8941f);}
+  /* 侧栏折叠（桌面端） */
+  .app.sidebar-collapsed .sidebar{width:68px !important;}
+  .app.sidebar-collapsed .sidebar .brand>div:not(.brand-mark),
+  .app.sidebar-collapsed .sidebar .session-head,
+  .app.sidebar-collapsed .sidebar .sess-search,
+  .app.sidebar-collapsed .sidebar .sessions,
+  .app.sidebar-collapsed .sidebar .side-foot{display:none;}
+  .app.sidebar-collapsed .sidebar .brand{justify-content:center;}
+  .app.sidebar-collapsed .btn-block{margin:12px auto;padding:10px;}
+  .app.sidebar-collapsed .btn-block{font-size:0;}
+  .app.sidebar-collapsed .btn-block::after{content:"+";font-size:18px;}
+  /* 会话项 */
+  .sess{border-radius:10px;transition:background .15s;}
+  .sess:hover{background:rgba(201,162,39,.07);}
+  .sess.active{background:rgba(201,162,39,.12);}
+  .sess .t{color:var(--text);}
+  .sess .s{color:var(--muted);}
+  .sess-op{color:var(--muted);border-radius:6px;}
+  .sess-op:hover{background:rgba(201,162,39,.15);color:var(--gold);}
+  /* 主区顶栏 */
+  .topbar{background:transparent;border-bottom:1px solid #221c14;}
+  .topbar h2{color:var(--cream);}
+  .topbar .hint{color:var(--muted);}
+  /* 豆包风输入区 */
+  .composer{background:linear-gradient(180deg,#221c15,#1b1712);border:1px solid #33291c;border-radius:18px;box-shadow:0 8px 30px rgba(0,0,0,.4),inset 0 1px 0 rgba(240,232,210,.05);padding:12px 14px;}
+  .composer textarea{background:transparent;border:none;color:var(--text);resize:none;line-height:1.6;}
+  .composer textarea::placeholder{color:#6f6552;}
+  .composer-bar{border-top:1px solid #2a221a;margin-top:8px;padding-top:10px;}
+  .composer-bar .btn-light{background:rgba(240,232,210,.06);border:1px solid #33291c;color:var(--text);border-radius:10px;}
+  .composer-bar .btn-light:hover{background:rgba(201,162,39,.15);}
+  .mode-select,.composer select{background:#1b1712;color:var(--text);border:1px solid #33291c;border-radius:10px;}
+  .send-btn{background:linear-gradient(135deg,#c9a227,#9a7a1f);color:#1a1408;font-weight:600;border-radius:12px;box-shadow:0 4px 16px rgba(201,162,39,.3);transition:transform .15s,box-shadow .15s;}
+  .send-btn:hover{transform:translateY(-1px);box-shadow:0 6px 22px rgba(201,162,39,.45);}
+  .foot-note{color:#6f6552;}
+  /* 气泡美化 */
+  .msg{margin:14px 0;}
+  .msg.user{justify-content:flex-end;}
+  .msg.user .bubble{background:linear-gradient(135deg,rgba(201,162,39,.2),rgba(201,162,39,.08));border:1px solid rgba(201,162,39,.3);border-radius:16px 16px 4px 16px;color:var(--text);padding:11px 15px;}
+  .msg.bot .bubble{background:transparent;border:none;color:var(--text);padding:4px 0;}
+  .msg.bot .avatar{background:linear-gradient(135deg,#c9a227,#8a6d1a);}
+  .msg-act{opacity:0;transition:opacity .15s,background .15s;border-radius:8px;}
+  .msg:hover .msg-act{opacity:1;}
+  .msg-act:hover{background:rgba(201,162,39,.14);color:var(--gold);}
+  .chat::-webkit-scrollbar{width:8px;}
+  .chat::-webkit-scrollbar-thumb{background:#3a2f20;border-radius:8px;}
+  /* 状态点 / 底部按钮 */
+  .status-pill .dot i{background:var(--gold);}
+  .side-actions .btn-ghost{color:var(--muted);border-radius:10px;}
+  .side-actions .btn-ghost:hover{background:rgba(201,162,39,.12);color:var(--gold);}
 </style>
 
 </head>
@@ -1649,6 +1714,18 @@
   clearTimeout(loadTimer);
   /* 入场 UI 立即可见：不等 three（粒子后台静默加载），LOADING 400ms 内消失 */
   setTimeout(function () { loadingEl.classList.add('hidden'); }, 400);
+
+  /* ===== 侧栏折叠（桌面端）：点 topbar 菜单按钮切换 ===== */
+  (function () {
+    var app = document.querySelector('.app');
+    var btn = document.getElementById('btnMenu');
+    if (!app || !btn) return;
+    btn.addEventListener('click', function () {
+      /* 宽屏才折叠；窄屏保持原有抽屉行为 */
+      if (window.innerWidth < 900) return;
+      app.classList.toggle('sidebar-collapsed');
+    });
+  })();
 })();
 </script>
 
