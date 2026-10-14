@@ -488,17 +488,28 @@
   .send-btn{background:linear-gradient(135deg,#c9a227,#9a7a1f);color:#1a1408;font-weight:600;border-radius:12px;box-shadow:0 4px 16px rgba(201,162,39,.3);transition:transform .15s,box-shadow .15s;}
   .send-btn:hover{transform:translateY(-1px);box-shadow:0 6px 22px rgba(201,162,39,.45);}
   .foot-note{color:#6f6552;}
-  /* 气泡美化 */
-  .msg{margin:14px 0;}
-  .msg.user{justify-content:flex-end;}
-  .msg.user .bubble{background:linear-gradient(135deg,rgba(201,162,39,.2),rgba(201,162,39,.08));border:1px solid rgba(201,162,39,.3);border-radius:16px 16px 4px 16px;color:var(--text);padding:11px 15px;}
-  .msg.bot .bubble{background:transparent;border:none;color:var(--text);padding:4px 0;}
-  .msg.bot .avatar{background:linear-gradient(135deg,#c9a227,#8a6d1a);}
+  /* 气泡美化（豆包风：无头像、用户深灰气泡靠右、bot 纯文字靠左） */
+  .avatar{display:none !important;}
+  .msg{margin:22px 0;display:flex;}
+  .msg.user{justify-content:flex-end;flex-direction:row;}
+  .msg.user .bubble{
+    background:#2a251d;border:1px solid #3a3226;border-radius:18px;
+    padding:11px 16px;color:var(--text);max-width:min(100%,720px);
+    border-bottom-right-radius:6px;box-shadow:none;
+  }
+  .msg.bot .bubble{background:transparent;border:none;color:var(--text);padding:4px 0;max-width:min(100%,860px);box-shadow:none;}
   .msg-act{opacity:0;transition:opacity .15s,background .15s;border-radius:8px;}
   .msg:hover .msg-act{opacity:1;}
   .msg-act:hover{background:rgba(201,162,39,.14);color:var(--gold);}
+  .msg-act:hover{background:transparent;}
   .chat::-webkit-scrollbar{width:8px;}
   .chat::-webkit-scrollbar-thumb{background:#3a2f20;border-radius:8px;}
+  /* 引用来源 chips 深色化 */
+  .sources{border-top-color:#2c251c;color:var(--muted);}
+  .sources .src-title{color:var(--gold);}
+  .src-chip{background:#221c15;border:1px solid #33291c;color:var(--text);border-radius:8px;}
+  .file-dl-chip{background:#221c15 !important;border-color:#33291c !important;color:var(--text) !important;}
+  .file-dl-chip:hover{background:#2c2418 !important;}
   /* 状态点 / 底部按钮 */
   .status-pill .dot i{background:var(--gold);}
   .side-actions .btn-ghost{color:var(--muted);border-radius:10px;}
