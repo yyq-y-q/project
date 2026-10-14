@@ -473,6 +473,8 @@
   .sess .s{color:var(--muted);}
   .sess-op{color:var(--muted);border-radius:6px;}
   .sess-op:hover{background:rgba(184,148,31,.18);color:var(--gold);}
+  .sess.pinned{border-left:3px solid var(--gold);padding-left:8px;}
+  .sess-op.pin{color:var(--gold);}
   /* 主区顶栏 */
   .topbar{background:transparent;border-bottom:1px solid #e2d6ba;}
   .topbar h2{color:#3a2f1c;}
@@ -796,16 +798,18 @@
     const box = $("sessionList");
     box.innerHTML = "";
     const q = ($("sessSearch") ? $("sessSearch").value : "").trim().toLowerCase();
-    const list = q
+    let list = q
       ? state.sessions.filter((s) => (s.title || "").toLowerCase().includes(q))
-      : state.sessions;
+      : state.sessions.slice();
+    // 置顶会话排最前
+    list.sort((a, b) => ((b.pinned ? 1 : 0) - (a.pinned ? 1 : 0)) || ((b.updatedAt || 0) - (a.updatedAt || 0)));
     if (!list.length) {
       box.innerHTML = '<div style="padding:12px;color:#9ca3af;font-size:12px">' + (q ? "无匹配会话" : "暂无会话，点击上方开始") + "</div>";
       return;
     }
     for (const s of list) {
       const b = document.createElement("div");
-      b.className = "sess" + (s.id === state.activeId ? " active" : "");
+      b.className = "sess" + (s.id === state.activeId ? " active" : "") + (s.pinned ? " pinned" : "");
       b.dataset.id = s.id;
       const main = document.createElement("div");
       main.className = "sess-main";
@@ -833,6 +837,7 @@
         ops.appendChild(o);
       };
       mkOp("重命名", '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>', "", () => renameSession(s.id));
+      mkOp(s.pinned ? "取消置顶" : "置顶", '<svg viewBox="0 0 24 24" width="13" height="13" fill="' + (s.pinned ? 'currentColor' : 'none') + '" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.5 6.5H21l-5.5 4.5 2 7-5.5-4-5.5 4 2-7L3 8.5h6.5z"/></svg>', "pin", () => { s.pinned = !s.pinned; save(); renderSessions(); });
       mkOp("删除", '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>', "del", () => deleteSession(s.id));
       b.appendChild(main);
       b.appendChild(ops);
