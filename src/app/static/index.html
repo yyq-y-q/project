@@ -513,6 +513,11 @@
   .status-pill .dot i{background:var(--gold);}
   .side-actions .btn-ghost{color:var(--muted);border-radius:10px;}
   .side-actions .btn-ghost:hover{background:rgba(184,148,31,.15);color:var(--gold);}
+  /* 侧栏：会话列表独立滚动，底部固定不被挤出 */
+  .sidebar{min-height:0;overflow:hidden;}
+  .sidebar > *{flex:none;}
+  .sessions{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;}
+  .side-foot{flex:none;}
   /* 输入框/下拉在浅色下 */
   input,textarea{background:#fffdf7 !important;color:var(--text) !important;}
   .btn-icon{background:transparent;color:var(--text);}
