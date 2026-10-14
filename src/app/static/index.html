@@ -415,6 +415,29 @@
   #entryLayer.done{opacity:0;visibility:hidden;transition:opacity .9s ease .05s,visibility 0s 1s;}
   #entryLayer.done #entryUI,#entryLayer.done .entry-vig,#entryLayer.done .entry-grain{pointer-events:none;}
   #entryLayer.done #entryCanvas,#entryLayer.done #entryShatter,#entryLayer.done #entryUI,#entryLayer.done .entry-vig,#entryLayer.done .entry-grain{opacity:0;transition:opacity .7s ease;}
+  /* ===== 主界面暗黑主题：与 Iris 入场页同调 ===== */
+  :root{
+    --bg:#0f1116; --bg-soft:#161a22; --sidebar:#0b0e14;
+    --sidebar-text:#e8e2d0; --sidebar-muted:#8a8574;
+    --card:#151922; --line:#262c3a; --text:#e8e6e0; --muted:#9aa0ae;
+    --primary:#c9a227; --primary-hover:#e0bc45; --primary-soft:rgba(201,162,39,.14);
+    --accent:#c9a227; --user-bg:#1e2530; --user-line:#3a4556;
+    --error-bg:#331a1a; --error-line:#6b3232; --error-text:#f0b4b4;
+  }
+  body{background:var(--bg);}
+  .btn-light{background:#1a1f2a;color:var(--text);border-color:var(--line);}
+  .btn-light:hover{background:#232a38;}
+  .btn-icon{background:#151922;color:var(--text);border-color:var(--line);}
+  .btn-icon:hover{background:#232a38;}
+  .chat::-webkit-scrollbar-thumb{background:#3a4256;}
+  .file-dl-chip{background:#1b212c;border-color:var(--line);color:var(--text);}
+  .file-dl-chip:hover{background:#252d3c;}
+  .msg-act{color:var(--muted);}
+  .msg-act:hover{background:#232a38;color:var(--text);}
+  .msg.user .msg-act:hover{background:#253242;color:#cfe3f5;}
+  .quote-bar{background:rgba(201,162,39,.08);border-color:#4a3d1a;}
+  .ctx-chip{background:#1b212c;}
+  input,textarea{background:#151922;color:var(--text);}
 </style>
 
 </head>
@@ -1624,7 +1647,8 @@
              'https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js'], 0);
 
   clearTimeout(loadTimer);
-  setTimeout(function () { loadingEl.classList.add('hidden'); }, 3000);
+  /* 入场 UI 立即可见：不等 three（粒子后台静默加载），LOADING 400ms 内消失 */
+  setTimeout(function () { loadingEl.classList.add('hidden'); }, 400);
 })();
 </script>
 
