@@ -706,9 +706,14 @@
     sessions: [],
     activeId: null,
     files: [],
-    sending: false,
+    busy: {}, // sessionId -> true，按会话独立发送锁
     quote: null, // { role: "user"|"bot", content: "..." }
   };
+
+  function syncSendBtn() {
+    const s = active();
+    $("btnSend").disabled = !!(s && state.busy[s.id]);
+  }
 
   function uid() {
     return "s-" + Math.random().toString(36).slice(2, 10);
@@ -831,6 +836,7 @@
     const cur = active();
     $("chatTitle").textContent = cur ? (cur.title || "对话") : "新对话";
     $("sessIdLabel").textContent = cur ? "会话 " + cur.id : "";
+    syncSendBtn();
   }
 
   function renameSession(id) {
@@ -1122,6 +1128,7 @@
     const cur = active();
     $("chatTitle").textContent = cur ? (cur.title || "对话") : "新对话";
     $("sessIdLabel").textContent = cur ? "会话 " + cur.id : "";
+    syncSendBtn();
   }
 
   function setFiles(list) {
@@ -1172,11 +1179,11 @@
   }
 
   async function send() {
-    if (state.sending) return;
     const text = $("input").value.trim();
     if (!text && !state.files.length && !state.quote) return;
 
     const s = ensureSession();
+    if (state.busy[s.id]) return; // 只锁当前会话，不影响其他对话
     if (s.title === "新对话" && text) {
       s.title = text.slice(0, 28) + (text.length > 28 ? "…" : "");
     }
@@ -1203,8 +1210,8 @@
     renderQuoteBar();
     const filesSnap = state.files.slice();
     setFiles([]);
-    state.sending = true;
-    $("btnSend").disabled = true;
+    state.busy[s.id] = true;
+    syncSendBtn();
     save();
     renderSessions();
     renderMessages();
@@ -1267,8 +1274,8 @@
       });
     } finally {
       s.updatedAt = Date.now();
-      state.sending = false;
-      $("btnSend").disabled = false;
+      delete state.busy[s.id];
+      syncSendBtn();
       save();
       renderSessions();
       renderMessages();
